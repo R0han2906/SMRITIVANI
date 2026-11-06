@@ -1,0 +1,70 @@
+# Secrets and local environment files (keep only safe templates)
+.env
+.env.*
+!.env.example
+!**/.env.example
+.secrets/
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+*.credentials
+
+# Virtual environments and Python caches
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.tox/
+.nox/
+pip-wheel-metadata/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Serena local state, indexes, and generated data
+.serena/
+
+# Other local tooling state
+.vscode/
+.idea/
+.fleet/
+.history/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and runtime output
+*.log
+logs/
+*.pid
+*.sock
+
+# Local databases, dumps, and backups
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.bak
+
+# Dependencies and generated build output
+node_modules/
+build/
+dist/
+*.egg-info/
+.next/
+.turbo/
+
+# Local uploads/media should not be checked in
+uploads/
+user_uploads/
