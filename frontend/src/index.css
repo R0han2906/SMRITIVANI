@@ -1,0 +1,43 @@
+@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700;800&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Atkinson Hyperlegible", Arial, sans-serif;
+  --color-cream: #fffaf0;
+  --color-ink: #24332f;
+  --color-muted: #596b65;
+  --color-brand: #c9573b;
+  --color-brand-soft: #f9e4da;
+  --color-forest: #35675a;
+  --color-sage: #e7f0e7;
+  --color-line: #e6dece;
+  --color-line-strong: #cfc4b1;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    background: var(--color-cream);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 18px;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

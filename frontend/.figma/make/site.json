@@ -1,0 +1,10 @@
+{
+  "description": "A voice-first AI companion helps Indian families support elderly parents with medication reminders, emergency alerts, and daily connection in their mother tongue.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
