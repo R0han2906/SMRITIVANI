@@ -25,14 +25,48 @@ _NEGATIVE = ("udaas", "dukhi", "akela", "dard", "pareshan", "sad", "lonely", "рд
 
 
 def classify_intent(text: str) -> IntentResult:
+    """Classify intent from Hindi/Hinglish text with required action fields."""
     started = time.perf_counter()
     normalized = " ".join(text.lower().split())
+    latency = round((time.perf_counter() - started) * 1000)
+    
+    # Check for negation (e.g., "nahi dard" = no pain)
     if _NEGATION.search(normalized) and any(word in normalized for word in _NEGATABLE_SYMPTOMS):
-        return IntentResult(provider="local_rules", confidence=0.84, latency_ms=round((time.perf_counter() - started) * 1000), intent="general", sentiment="neutral")
+        return IntentResult(
+            provider="local_rules",
+            confidence=0.84,
+            latency_ms=latency,
+            intent="general",
+            sentiment="neutral",
+            action_type="none",
+            action_target=""
+        )
+    
+    # Check for keyword matches
     for intent, words, action, target in _INTENTS:
         if any(word in normalized for word in words):
-            return IntentResult(provider="local_rules", confidence=0.86 if intent == "emergency" else 0.78, latency_ms=round((time.perf_counter() - started) * 1000), intent=intent, sentiment=classify_sentiment(normalized).label, action_type=action, action_target=target)
-    return IntentResult(provider="local_rules", confidence=0.5, latency_ms=round((time.perf_counter() - started) * 1000), intent="general", sentiment=classify_sentiment(normalized).label)
+            sentiment_result = classify_sentiment(normalized)
+            return IntentResult(
+                provider="local_rules",
+                confidence=0.86 if intent == "emergency" else 0.78,
+                latency_ms=latency,
+                intent=intent,
+                sentiment=sentiment_result.label,
+                action_type=action,
+                action_target=target
+            )
+    
+    # Default fallback - MUST include action_type and action_target
+    sentiment_result = classify_sentiment(normalized)
+    return IntentResult(
+        provider="local_rules",
+        confidence=0.5,
+        latency_ms=latency,
+        intent="general",
+        sentiment=sentiment_result.label,
+        action_type="none",
+        action_target=""
+    )
 
 
 def detect_emergency(text: str) -> EmergencyResult:
