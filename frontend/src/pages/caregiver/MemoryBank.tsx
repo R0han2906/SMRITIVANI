@@ -3,7 +3,7 @@ import { BookOpen, Brain, CalendarDays, Heart, Home, Lightbulb, Mic, Pencil, Pho
 import { Link, useNavigate } from "react-router-dom";
 import { CaregiverBottomNav } from "../../components/layout/CaregiverChrome";
 import { useElderResource } from "../../hooks/useElderResource";
-import { getCaregiverVoiceInteractions } from "../../services/api";
+import { getCaregiverVoiceInteractions, getCurrentElderId } from "../../services/api";
 
 type Tab = "family" | "facts" | "stories";
 const relationships = ["Son", "Daughter", "Grandson", "Granddaughter", "Spouse", "Brother", "Sister", "Neighbor", "Other"];
@@ -35,16 +35,17 @@ export default function MemoryBank() {
   const [familyDraft, setFamilyDraft] = useState({ name: "", relationship: "Son", city: "", phone: "", info: "" });
   const [factDraft, setFactDraft] = useState({ emoji: "💡", text: "" });
   const [recalledMemories, setRecalledMemories] = useState<Record<string, unknown>[]>([]);
+  const interactionElderId = memory.elderId || getCurrentElderId();
 
   useEffect(() => {
-    if (!memory.elderId) return;
+    if (!interactionElderId) return;
     let active = true;
-    getCaregiverVoiceInteractions(memory.elderId).then(({ items }) => {
+    getCaregiverVoiceInteractions(interactionElderId).then(({ items }) => {
       const weekStart = Date.now() - 7 * 86400000;
       if (active) setRecalledMemories(items.filter((item) => item.intent === "memory" && new Date(String(item.created_at ?? 0)).getTime() >= weekStart).slice(0, 6));
     }).catch(() => { if (active) setRecalledMemories([]); });
     return () => { active = false; };
-  }, [memory.elderId]);
+  }, [interactionElderId]);
 
   const families = useMemo(() => memory.items.filter((item) => item.type === "family").map((item) => {
     const details = unpackFamily(typeof item.info === "string" ? item.info : "");

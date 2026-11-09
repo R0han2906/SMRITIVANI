@@ -1,23 +1,37 @@
-# Secrets and local environment files (keep only safe templates)
+# Secrets and local environment files. Keep safe templates such as .env.example.
 .env
 .env.*
+*.env
 !.env.example
+!.env.*.example
 !**/.env.example
+!**/.env.*.example
+.envrc
 .secrets/
 secrets/
 *.pem
 *.key
 *.p12
 *.pfx
+*.jks
+*.keystore
 *.secret
 *.credentials
+credentials.json
+secrets.json
 
-# Documentation with potential secrets
+# Local cloud / deployment credentials and state
+.vercel/
+.netlify/
+.wrangler/
+.serverless/
+
+# Local-only documentation or generated setup notes that may include credentials
 docs/API_KEYS_*.md
 !docs/API_KEYS_REQUIRED.md
 SYSTEM_READY.md
 
-# Virtual environments and Python caches
+# Python virtual environments, bytecode, and tooling caches
 .venv/
 venv/
 ENV/
@@ -31,29 +45,33 @@ __pycache__/
 .ruff_cache/
 .tox/
 .nox/
-pip-wheel-metadata/
 .coverage
 .coverage.*
 coverage.xml
 htmlcov/
+pip-wheel-metadata/
+*.egg-info/
 
-# Serena local state, indexes, and generated data
+# Serena local indexes and session state
 .serena/
 
-# Other local tooling state
-.vscode/
-.idea/
-.fleet/
-.history/
-.DS_Store
-Thumbs.db
-desktop.ini
+# Node dependencies, build output, and framework caches
+node_modules/
+dist/
+build/
+.vite/
+.cache/
+.next/
+.turbo/
+*.tsbuildinfo
 
-# Logs and runtime output
+# Logs, process state, and temporary files
 *.log
 logs/
 *.pid
 *.sock
+*-debug.log*
+.tmp-*
 
 # Local databases, dumps, and backups
 *.db
@@ -62,14 +80,15 @@ logs/
 *.dump
 *.bak
 
-# Dependencies and generated build output
-node_modules/
-build/
-dist/
-*.egg-info/
-.next/
-.turbo/
-
-# Local uploads/media should not be checked in
+# User-generated local uploads; keep public/static application assets tracked
 uploads/
 user_uploads/
+
+# Operating system and editor state
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+.fleet/
+.history/

@@ -6,14 +6,37 @@ import { useNavigate } from "react-router-dom";
 export default function AISpeaking() {
   const navigate = useNavigate();
   const [reply] = useState(() => sessionStorage.getItem("smritivani.last_spoken_response") ?? "");
+  const [audioBase64] = useState(() => sessionStorage.getItem("smritivani.last_spoken_audio") ?? "");
+  const [audioMime] = useState(() => sessionStorage.getItem("smritivani.last_spoken_audio_mime") ?? "audio/wav");
   const [speechError, setSpeechError] = useState("");
 
-  const readReply = () => {
-    if (!reply) { setSpeechError("There is no saved voice response to play. Ask a voice command first."); return; }
+  const readWithBrowser = () => {
     if (!("speechSynthesis" in window)) { setSpeechError("Spoken playback is not available in this browser."); return; }
     setSpeechError("");
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(new SpeechSynthesisUtterance(reply));
+  };
+
+  const readReply = () => {
+    if (!reply) { setSpeechError("There is no saved voice response to play. Ask a voice command first."); return; }
+    if (audioBase64) {
+      try {
+        const binary = window.atob(audioBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        const audioUrl = URL.createObjectURL(new Blob([bytes], { type: audioMime }));
+        const audio = new Audio(audioUrl);
+        const releaseUrl = () => URL.revokeObjectURL(audioUrl);
+        audio.onended = releaseUrl;
+        audio.onerror = () => { releaseUrl(); readWithBrowser(); };
+        audio.play().catch(() => { releaseUrl(); readWithBrowser(); });
+        setSpeechError("");
+        return;
+      } catch {
+        setSpeechError("The saved audio could not be played. Try asking again.");
+      }
+    }
+    readWithBrowser();
   };
 
   useEffect(() => { if (reply) readReply(); return () => { if ("speechSynthesis" in window) window.speechSynthesis.cancel(); }; }, []);
@@ -26,7 +49,7 @@ export default function AISpeaking() {
       {reply ? <section className="mt-7 max-w-xl rounded-3xl border-2 border-line bg-white p-7 text-center shadow-[6px_6px_0_#e6dece]"><p className="text-2xl leading-relaxed">{reply}</p><button type="button" onClick={readReply} className="mx-auto mt-6 flex min-h-12 items-center gap-2 rounded-xl bg-teal-100 px-5 font-bold text-teal-800"><Play className="size-5 fill-current" />Read again</button></section> : <p className="mt-7 max-w-md rounded-2xl bg-white p-6 text-center text-muted">No voice response is available yet. Use the microphone to ask about your saved care information.</p>}
       {speechError && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-4 font-bold text-red-700">{speechError}</p>}
       <div className="mt-6 flex w-full max-w-sm flex-col gap-3"><button type="button" onClick={() => navigate("/elderly/listening")} className="flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-brand font-bold text-white"><Mic className="size-5" />Ask again</button><button type="button" onClick={() => navigate("/elderly")} className="flex min-h-14 items-center justify-center gap-3 rounded-2xl border-2 border-slate-300 bg-white font-bold text-slate-700"><Home className="size-5" />Go home</button></div>
-      <p className="mt-7 max-w-md text-center text-sm leading-6 text-muted">Spoken playback uses your browser. AI-generated conversation is not connected to the current backend.</p>
+      <p className="mt-7 max-w-md text-center text-sm leading-6 text-muted">SmritiVani creates replies with its configured AI service and speaks them with Gnani when available.</p>
     </motion.main>
   );
 }

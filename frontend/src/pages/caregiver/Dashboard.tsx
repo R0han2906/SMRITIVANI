@@ -2,14 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Bell, Brain, CalendarDays, Check, CheckCircle2, Clock3, Heart, Home, Mic, Pill, Plus, User } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { createDevicePairingCode, getCaregiverPairedDevices, getCaregiverSafetyAlerts, getCaregiverVoiceInteractions, getCurrentElderId, getElderlyProfiles, listElderResource, saveCurrentElderId } from "../../services/api";
+import { ApiError, createDevicePairingCode, getCaregiverDashboard, getCurrentElderId, saveCurrentElderId, type CaregiverDashboard } from "../../services/api";
 import type { ElderResource } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 
 type Row = Record<string, unknown>;
 type Elder = { id: string; name: string; age: number | null; city: string | null; lives_alone: boolean };
 const navItems = [{ label: "Home", icon: Home, path: "/caregiver" }, { label: "Memory", icon: Brain, path: "/caregiver/memory" }, { label: "Events", icon: CalendarDays, path: "/caregiver/events" }, { label: "Notes", icon: Mic, path: "/caregiver/notes" }, { label: "Profile", icon: User, path: "/caregiver/settings" }];
-const resources: ElderResource[] = ["events", "medicines", "medicine-logs", "memories", "contacts", "daily-logs", "alerts", "voice-notes"];
 const prettyTime = (value: unknown) => typeof value === "string" && value ? new Date(`1970-01-01T${value}`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Time not set";
 
 export default function Dashboard() {
@@ -27,53 +26,48 @@ export default function Dashboard() {
 
   useEffect(() => {
     let active = true;
-    getElderlyProfiles().then(({ items }) => {
-      const preferred = getCurrentElderId();
-      const row = items.find((item) => item.id === preferred) ?? items[0];
-      if (!row) { navigate("/onboarding", { replace: true }); return; }
+    const loadDashboard = async () => {
+      const selectedElderId = getCurrentElderId();
+      let result: CaregiverDashboard;
+      try {
+        result = await getCaregiverDashboard(selectedElderId);
+      } catch (loadError) {
+        // A stale local selection can happen after a caregiver loses access.
+        // Retry once with the server's first currently accessible elder.
+        if (!selectedElderId || !(loadError instanceof ApiError) || loadError.status !== 404) throw loadError;
+        result = await getCaregiverDashboard();
+      }
+      if (!active) return;
+      const row = result.elder;
       if (typeof row.id !== "string" || typeof row.name !== "string") throw new Error("Care profile response is incomplete.");
       saveCurrentElderId(row.id);
-      if (active) setElder({ id: row.id, name: row.name, age: typeof row.age === "number" ? row.age : null, city: typeof row.city === "string" ? row.city : null, lives_alone: Boolean(row.lives_alone) });
-    }).catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the care profile."); }).finally(() => { if (active) setIsProfileLoading(false); });
+      setElder({ id: row.id, name: row.name, age: typeof row.age === "number" ? row.age : null, city: typeof row.city === "string" ? row.city : null, lives_alone: Boolean(row.lives_alone) });
+      setData((current) => ({ ...current, ...result.data }));
+      setVoiceStats({ count: result.voice_stats.count, lastActive: result.voice_stats.last_active, pendingAlerts: result.voice_stats.pending_alerts, mood: result.voice_stats.mood });
+      setPairedDevice(result.paired_device);
+    };
+    void loadDashboard().catch((loadError) => {
+      if (!active) return;
+      if (loadError instanceof ApiError && loadError.status === 404) { navigate("/onboarding", { replace: true }); return; }
+      setError(loadError instanceof Error ? loadError.message : "Could not load your care dashboard.");
+    }).finally(() => {
+      if (active) { setIsProfileLoading(false); setIsLoading(false); }
+    });
     return () => { active = false; };
   }, [navigate]);
 
   useEffect(() => {
     if (!elder) return;
     let active = true;
-    setIsLoading(true);
-    Promise.allSettled(resources.map((resource) => listElderResource(elder.id, resource))).then((results) => {
-      if (!active) return;
-      const next = { events: [], medicines: [], "medicine-logs": [], memories: [], contacts: [], "daily-logs": [], alerts: [], "voice-notes": [], conversations: [], messages: [] } as Record<ElderResource, Row[]>;
-      const failures: string[] = [];
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") next[resources[index]] = result.value.items;
-        else failures.push(resources[index]);
-      });
-      setData(next);
-      if (failures.length) setError(`Some care information could not load: ${failures.join(", ")}.`);
-    }).finally(() => { if (active) setIsLoading(false); });
-    return () => { active = false; };
-  }, [elder]);
-
-  useEffect(() => {
-    if (!elder) return;
-    let active = true;
-    const refreshVoice = async () => {
-      try {
-        const [interactions, alerts, devices] = await Promise.all([getCaregiverVoiceInteractions(elder.id), getCaregiverSafetyAlerts(elder.id, "pending"), getCaregiverPairedDevices(elder.id)]);
-        if (active) {
-          setVoiceStats({ count: interactions.items.length, lastActive: String(interactions.items[0]?.created_at ?? ""), pendingAlerts: alerts.items.length, mood: String(interactions.items[0]?.sentiment ?? "") });
-          setPairedDevice(devices.items.find((item) => item.is_active === true) ?? null);
-        }
-      } catch (loadError) {
-        if (active) setError(loadError instanceof Error ? loadError.message : "Could not load voice activity.");
-      }
-    };
-    void refreshVoice();
-    const timer = window.setInterval(() => void refreshVoice(), 30000);
+    const timer = window.setInterval(() => {
+      void getCaregiverDashboard(elder.id, false).then((summary) => {
+        if (!active) return;
+        setVoiceStats({ count: summary.voice_stats.count, lastActive: summary.voice_stats.last_active, pendingAlerts: summary.voice_stats.pending_alerts, mood: summary.voice_stats.mood });
+        setPairedDevice(summary.paired_device);
+      }).catch(() => { /* Keep the last successful dashboard summary during transient refresh failures. */ });
+    }, 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [elder]);
+  }, [elder?.id]);
 
   const generatePairingCode = async () => {
     if (!elder) return;

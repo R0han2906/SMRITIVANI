@@ -1,16 +1,37 @@
+# Dependencies
 node_modules/
+
+# Local environment and secrets. Commit only placeholder templates.
+.env
+.env.*
+*.env
+!.env.example
+!.env.*.example
+
+# Build output, test reports, and bundler caches
 dist/
 build/
+coverage/
+playwright-report/
+test-results/
 .cache/
-.env*
 .vite/
+.next/
+.turbo/
 vite.config.*.timestamp-*
 *.tsbuildinfo
-*-debug.log*
+
+# Local logs and temporary files
 logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*-debug.log*
 .claude-replay.*
 .tmp-*
+
+# Local-only Figma Make and agent platform state
 /.figma/design-context/
 
 # Platform-managed agentplat state, not project source. In the

@@ -19,28 +19,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    let active = true;
-    async function restoreSession() {
-      const storedToken = api.getStoredToken();
-      if (!storedToken) { setIsLoading(false); return; }
-      try {
-        const profile = await api.getCurrentUser();
-        if (active) { setToken(storedToken); setUser(profile); }
-      } catch (error) {
-        const refreshToken = api.getStoredRefreshToken();
-        if (error instanceof api.ApiError && error.status === 401 && refreshToken) {
-          try {
-            const session = await api.refresh(refreshToken);
-            if (!session.access_token) throw new Error("Session refresh did not return an access token.");
-            api.saveSession(session);
-            const profile = await api.getCurrentUser();
-            if (active) { setToken(session.access_token); setUser(profile); }
-          } catch { api.clearSession(); if (active) { setToken(null); setUser(null); } }
-        } else { api.clearSession(); if (active) { setToken(null); setUser(null); } }
-      } finally { if (active) setIsLoading(false); }
-    }
-    void restoreSession();
-    return () => { active = false; };
+    // Require an explicit caregiver login after the app starts. Patient device
+    // pairing is independent and remains available through DeviceContext.
+    api.clearSession();
+    setToken(null);
+    setUser(null);
+    setIsLoading(false);
   }, []);
 
   const login = useCallback(async (credentials: { email: string; password: string }) => {

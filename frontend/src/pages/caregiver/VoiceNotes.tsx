@@ -3,7 +3,7 @@ import { ArrowLeft, Headphones, Mic, Search, Volume2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useElderResource } from "../../hooks/useElderResource";
 import { CaregiverBottomNav } from "../../components/layout/CaregiverChrome";
-import { getCaregiverVoiceInteractions } from "../../services/api";
+import { getCaregiverVoiceInteractions, getCurrentElderId } from "../../services/api";
 
 export default function VoiceNotes() {
   const navigate = useNavigate();
@@ -13,15 +13,16 @@ export default function VoiceNotes() {
   const [interactionError, setInteractionError] = useState("");
   const [intent, setIntent] = useState("all");
   const [query, setQuery] = useState("");
+  const interactionElderId = profile.elderId || getCurrentElderId();
 
   useEffect(() => {
-    if (!profile.elderId) return;
+    if (!interactionElderId) return;
     let active = true;
-    getCaregiverVoiceInteractions(profile.elderId, undefined).then(({ items }) => { if (active) setInteractions(items); })
+    getCaregiverVoiceInteractions(interactionElderId, undefined).then(({ items }) => { if (active) setInteractions(items); })
       .catch((error) => { if (active) setInteractionError(error instanceof Error ? error.message : "Could not load voice interactions."); })
       .finally(() => { if (active) setIsLoadingInteractions(false); });
     return () => { active = false; };
-  }, [profile.elderId]);
+  }, [interactionElderId]);
 
   const visible = useMemo(() => interactions.filter((item) => {
     const transcript = String(item.transcript ?? "");

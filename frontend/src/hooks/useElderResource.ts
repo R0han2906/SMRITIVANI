@@ -35,13 +35,24 @@ export function useElderResource(resource: ElderResource) {
       setIsLoading(true);
       setError("");
       try {
+        let selectedId = getCurrentElderId();
+        if (selectedId) {
+          try {
+            const result = await listElderResource(selectedId, resource);
+            if (active) { setElderId(selectedId); setItems(result.items); }
+            return;
+          } catch (err) {
+            if (!(err instanceof ApiError) || err.status !== 404) throw err;
+            // The locally selected profile may have been deleted or access revoked.
+          }
+        }
         const { items: elders } = await getElderlyProfiles();
-        const preferredId = getCurrentElderId();
-        const elder = elders.find((row) => row.id === preferredId) ?? elders[0];
+        const elder = elders.find((row) => row.id === selectedId) ?? elders[0];
         if (!elder || typeof elder.id !== "string") throw new Error("No care profile found. Create one from onboarding first.");
-        saveCurrentElderId(elder.id);
-        const result = await listElderResource(elder.id, resource);
-        if (active) { setElderId(elder.id); setItems(result.items); }
+        selectedId = elder.id;
+        saveCurrentElderId(selectedId);
+        const result = await listElderResource(selectedId, resource);
+        if (active) { setElderId(selectedId); setItems(result.items); }
       } catch (err) {
         if (active) setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Could not load this care information.");
       } finally { if (active) setIsLoading(false); }

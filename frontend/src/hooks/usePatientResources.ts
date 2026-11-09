@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useDevice } from "../context/DeviceContext";
 import {
   ApiError,
   createElderResource,
   deleteElderResource,
   getCurrentElderId,
   getElderlyProfiles,
-  getPairedElderProfile,
+  getPairedElderResources,
   getStoredDeviceToken,
   listElderResource,
   saveCurrentElderId,
@@ -16,6 +17,7 @@ import {
 type Row = Record<string, unknown>;
 
 export function usePatientResources(resources: ElderResource[]) {
+  const device = useDevice();
   const resourceKey = useMemo(() => [...new Set(resources)].sort().join("|"), [resources]);
   const requestedResources = useMemo(() => resourceKey.split("|").filter(Boolean) as ElderResource[], [resourceKey]);
   const [elderId, setElderId] = useState("");
@@ -36,7 +38,7 @@ export function usePatientResources(resources: ElderResource[]) {
       setIsLoading(true);
       setError("");
       try {
-        const paired = getStoredDeviceToken() ? await getPairedElderProfile() : null;
+        const paired = getStoredDeviceToken() ? await getPairedElderResources(requestedResources) : null;
         const row = paired?.elderly_profile;
         const list = row ? null : await getElderlyProfiles();
         const selectedId = getCurrentElderId();
@@ -44,6 +46,10 @@ export function usePatientResources(resources: ElderResource[]) {
         if (!selectedRow || typeof selectedRow.id !== "string") throw new Error("Your caregiver needs to finish setting up this device.");
         saveCurrentElderId(selectedRow.id);
         if (active) { setElderId(selectedRow.id); setElder(selectedRow); }
+        if (paired) {
+          if (active) setData((current) => ({ ...current, ...paired.data }));
+          return;
+        }
         const results = await Promise.allSettled(requestedResources.map((resource) => listElderResource(selectedRow.id as string, resource)));
         if (!active) return;
         const next: Partial<Record<ElderResource, Row[]>> = {};
@@ -55,12 +61,16 @@ export function usePatientResources(resources: ElderResource[]) {
         setData((current) => ({ ...current, ...next }));
         if (failures.length) setError(`Some saved information could not load: ${failures.join(", ")}.`);
       } catch (loadError) {
+        if (active && getStoredDeviceToken() && loadError instanceof ApiError && loadError.status === 401) {
+          device.invalidatePairing();
+          return;
+        }
         if (active) setError(loadError instanceof ApiError ? loadError.message : loadError instanceof Error ? loadError.message : "Could not load saved care information.");
       } finally { if (active) setIsLoading(false); }
     }
     void load();
     return () => { active = false; };
-  }, [requestedResources]);
+  }, [requestedResources, device.invalidatePairing]);
 
   const create = useCallback(async (resource: ElderResource, payload: Row) => {
     if (!elderId) throw new Error("Care profile is not ready yet.");

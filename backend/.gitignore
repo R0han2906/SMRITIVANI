@@ -1,0 +1,55 @@
+# Local credentials and environment overrides. Keep safe example templates.
+.env
+.env.*
+*.env
+!.env.example
+!.env.*.example
+
+# Virtual environments and Python bytecode
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python test, type-check, and lint caches/reports
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Packaging and generated build output
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Serena state and local tooling metadata
+.serena/
+.vscode/
+.idea/
+
+# Runtime logs and process files
+logs/
+*.log
+*.pid
+*.sock
+
+# Local databases, dumps, and backups
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.bak
+
+# Private local uploads and generated media
+uploads/
+user_uploads/

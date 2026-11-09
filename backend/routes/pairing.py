@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections import defaultdict, deque
 import hashlib
+import io
 import json
 import logging
 import os
 import re
 import secrets
 import threading
+import time
+import wave
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 from uuid import UUID
@@ -21,6 +25,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.middleware.auth import CurrentUser
 from backend.services.ai.orchestrator import voice_orchestrator
+from backend.services.ai.response_generator import configured_ai_mode
+from backend.services.ai.providers.gnani import GnaniAPIError, GnaniConfigurationError, GnaniProvider
 from backend.services.ai.summary_generator import summarize_voice_day
 from backend.services.supabase import request_json, rest_table_path
 from backend.utils.device_tokens import generate_device_token, hash_device_token, hash_pairing_code
@@ -83,7 +89,12 @@ async def _run_db(request: Request, operation):
         raise
     except Exception as exc:
         # Driver error strings may contain SQL details; do not expose them.
-        logger.error("pairing_or_voice_database_operation_failed error_type=%s", type(exc).__name__)
+        sqlstate = getattr(exc, "sqlstate", None)
+        primary_message = getattr(getattr(exc, "diag", None), "message_primary", None)
+        logger.error(
+            "pairing_or_voice_database_operation_failed error_type=%s sqlstate=%s database_message=%s",
+            type(exc).__name__, sqlstate or "n/a", primary_message or "n/a",
+        )
         raise HTTPException(status_code=503, detail="The pairing service could not complete this request.") from None
 
 
@@ -216,6 +227,63 @@ async def paired_profile(request: Request, x_device_token: Annotated[str | None,
     return result
 
 
+@router.get("/resources", summary="Read several resources for the paired elderly profile")
+async def paired_resources(
+    request: Request,
+    resources: str = Query("", max_length=400),
+    x_device_token: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    requested = list(dict.fromkeys(part.strip() for part in resources.split(",") if part.strip()))
+    unknown = [resource for resource in requested if resource not in DEVICE_RESOURCES]
+    if unknown:
+        raise HTTPException(status_code=404, detail="Unknown care resource.")
+    token_hash = _device_token(x_device_token)
+
+    # Resource/table/order values come only from the server-owned allowlist above.
+    resource_sql = []
+    params: list[Any] = []
+    for resource in requested:
+        table, order = DEVICE_RESOURCES[resource]
+        resource_sql.append(
+            "%s::text, coalesce((select jsonb_agg(to_jsonb(r)) from "
+            f"(select * from public.{table} where elder_id=e.id order by {order} limit 100) r), '[]'::jsonb)"
+        )
+        params.append(resource)
+
+    data_expression = f"jsonb_build_object({', '.join(resource_sql)})" if resource_sql else "'{}'::jsonb"
+    query = f"""
+        select
+            jsonb_build_object(
+                'id', e.id, 'name', e.name, 'age', e.age,
+                'language', e.language, 'city', e.city, 'timezone', e.timezone
+            ) as elderly_profile,
+            {data_expression} as data
+        from public.elders e
+        where e.id=%s
+    """
+    result = await _run_db(request, lambda pool: _fetch_paired_resources(pool, query, params, token_hash))
+    if not result[0]:
+        raise HTTPException(status_code=401, detail="This device pairing has expired. Ask your caregiver to pair it again.")
+    return {"elderly_profile": result[0], "data": result[1] or {}}
+
+
+def _fetch_paired_resources(pool, query: str, params: list[Any], token_hash: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "update public.paired_devices set last_seen_at=clock_timestamp() "
+                "where device_token_hash=%s and is_active=true returning elder_id",
+                (token_hash,),
+            )
+            paired = cursor.fetchone()
+            if not paired:
+                return None, {}
+            params.append(str(paired[0]))
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+            return (row[0], row[1]) if row else (None, {})
+
+
 @router.get("/resources/{resource}", summary="Read records for the paired elderly profile")
 async def paired_resource(resource: str, request: Request, x_device_token: Annotated[str | None, Header()] = None, limit: int = 100, offset: int = 0) -> dict[str, Any]:
     if resource not in DEVICE_RESOURCES:
@@ -283,10 +351,23 @@ async def unpair_device(request: Request, x_device_token: Annotated[str | None, 
 async def process_text(body: VoiceTextRequest, request: Request, x_device_token: Annotated[str | None, Header()] = None) -> dict[str, Any]:
     paired = await resolve_device(request, x_device_token)
     profile = paired["elderly_profile"] or {}
+    return await _process_voice_text(body, request, profile, asr_provider="browser")
+
+
+async def _process_voice_text(body: VoiceTextRequest, request: Request, profile: dict[str, Any], *, asr_provider: str) -> dict[str, Any]:
     history = await _run_db(request, lambda pool: _recent_messages(pool, str(profile.get("id", ""))))
     care_context = await _run_db(request, lambda pool: _care_context(pool, str(profile.get("id", ""))))
     try:
-        response = await voice_orchestrator.process_text(body.text, str(profile.get("id", "")), str(body.session_id) if body.session_id else None, body.language, str(profile.get("name", "")), history, care_context)
+        response = await voice_orchestrator.process_text(
+            body.text,
+            str(profile.get("id", "")),
+            str(body.session_id) if body.session_id else None,
+            body.language,
+            str(profile.get("name", "")),
+            history,
+            care_context,
+            asr_provider=asr_provider,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     result = response.to_dict()
@@ -297,18 +378,54 @@ async def process_text(body: VoiceTextRequest, request: Request, x_device_token:
         result["intent"]["intent"], float(result["intent"].get("confidence") or 0),
         result["providers_used"].get("llm", "unknown"), result["latency_ms"], result["emergency"]["is_emergency"],
     )
-    interaction_id = await _run_db(request, lambda pool: _persist_voice(pool, elder_id, body, result))
+    interaction_id = await _run_db(request, lambda pool: _persist_voice(pool, elder_id, body, result, asr_provider))
     result["interaction_id"] = interaction_id
+    # Persist the interaction (and any safety alert) before a potentially slow
+    # speech vendor call. TTS must never delay emergency alert creation.
+    tts_started = time.perf_counter()
+    try:
+        audio_bytes = await GnaniProvider().synthesize(result["assistant_text"], language=body.language)
+        result["assistant_audio_base64"] = base64.b64encode(audio_bytes).decode("ascii")
+        result["audio_mime"] = "audio/wav"
+        result["providers_used"]["tts"] = "gnani"
+    except (GnaniConfigurationError, GnaniAPIError) as exc:
+        logger.warning("voice_tts_unavailable error_type=%s", type(exc).__name__)
+        result["providers_used"]["tts"] = "browser"
+        result["warnings"].append("Gnani speech output is unavailable; browser speech fallback will be used.")
+        result["degraded_mode"] = True
+    except Exception as exc:
+        logger.warning("voice_tts_unavailable error_type=%s", type(exc).__name__)
+        result["providers_used"]["tts"] = "browser"
+        result["warnings"].append("Gnani speech output is unavailable; browser speech fallback will be used.")
+        result["degraded_mode"] = True
+    result["latency_ms"] += round((time.perf_counter() - tts_started) * 1000)
+    try:
+        await _run_db(request, lambda pool: _update_voice_tts(pool, interaction_id, result["providers_used"]["tts"], result["latency_ms"]))
+    except Exception as exc:
+        logger.warning("voice_tts_metadata_update_failed error_type=%s", type(exc).__name__)
     return result
+
+
+def _update_voice_tts(pool, interaction_id: str, provider: str, latency_ms: int) -> None:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("update public.voice_interactions set tts_provider=%s,latency_ms=%s where id=%s", (provider, latency_ms, interaction_id))
 
 
 def _recent_messages(pool, elder_id: str) -> list[dict[str, str]]:
     with pool.connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute("select transcript,assistant_response from public.voice_interactions where elder_id=%s order by created_at desc limit 3", (elder_id,))
+            # Local canned replies are not useful dialogue history and can make
+            # the model repeat the same fallback suggestions on every turn.
+            cursor.execute("select transcript,assistant_response from public.voice_interactions where elder_id=%s and llm_provider in ('groq','gemini') and not is_emergency order by created_at desc limit 3", (elder_id,))
             rows = list(reversed(cursor.fetchall()))
     messages: list[dict[str, str]] = []
     for transcript, assistant_response in rows:
+        # Drop old generic feature suggestions (for example, unsolicited event
+        # or bhajan menus) so they cannot bias the next conversational reply.
+        feature_mention = re.compile(r"\b(events?|schedules?|appointments?|bhajans?|aarti|music)\b", re.IGNORECASE)
+        if feature_mention.search(str(assistant_response or "")) and not feature_mention.search(str(transcript or "")):
+            continue
         messages.extend(({"role": "user", "content": str(transcript)[:4000]}, {"role": "assistant", "content": str(assistant_response)[:4000]}))
     return messages[-6:]
 
@@ -329,23 +446,60 @@ def _care_context(pool, elder_id: str) -> str:
     return "; ".join(parts)
 
 
-@voice_router.post("/process", summary="Process recorded audio when a verified ASR provider is configured")
-async def process_audio(request: Request, x_device_token: Annotated[str | None, Header()] = None) -> dict[str, Any]:
-    await resolve_device(request, x_device_token)
-    content_type = request.headers.get("content-type", "").lower()
-    if not content_type.startswith("audio/"):
-        raise HTTPException(status_code=415, detail="Send a supported audio recording. Browser speech recognition is available as a fallback.")
-    audio = await request.body()
+@voice_router.post("/process", summary="Transcribe a short recording with Gnani and process the transcript")
+async def process_audio(
+    request: Request,
+    language_code: str = Query("hi-IN", min_length=2, max_length=32),
+    x_device_token: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    paired = await resolve_device(request, x_device_token)
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type not in {"audio/wav", "audio/x-wav", "audio/wave"}:
+        raise HTTPException(status_code=415, detail="Send a WAV recording. The browser recorder converts microphone audio to WAV before upload.")
+
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="The recording is too large. Please use a shorter voice message.")
+    audio = bytearray()
+    async for chunk in request.stream():
+        audio.extend(chunk)
+        if len(audio) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="The recording is too large. Please use a shorter voice message.")
     if not audio:
         raise HTTPException(status_code=422, detail="The audio recording is empty.")
-    if len(audio) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="The recording is too large. Please use a shorter voice message.")
-    # The Gnani request/response contract is not documented in the project.
-    # Never send raw audio to a guessed endpoint or retain it in this fallback.
-    raise HTTPException(status_code=503, detail="Recorded-audio transcription is not configured yet. Use the microphone's browser speech mode instead.")
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as wav_file:
+            frame_rate = wav_file.getframerate()
+            duration_seconds = wav_file.getnframes() / frame_rate if frame_rate else 0
+    except (wave.Error, EOFError):
+        raise HTTPException(status_code=422, detail="The uploaded WAV recording is invalid.") from None
+    if duration_seconds <= 0:
+        raise HTTPException(status_code=422, detail="The uploaded WAV recording has no audio frames.")
+    if duration_seconds > 30:
+        raise HTTPException(status_code=422, detail="Gnani accepts recordings up to 30 seconds. Please send a shorter recording.")
+
+    try:
+        transcript = await GnaniProvider().transcribe(bytes(audio), language=language_code)
+    except GnaniConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except GnaniAPIError as exc:
+        status_code = 429 if exc.status_code == 429 else 422 if exc.status_code in {400, 422} else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from None
+    if not transcript.text:
+        raise HTTPException(status_code=422, detail="No speech was detected. Please speak closer to the microphone and try again.")
+
+    profile = paired["elderly_profile"] or {}
+    # Use the language selected in the elder profile for the reply and voice.
+    # Keep Gnani's detected language separately for diagnostics/transcript display.
+    voice_text = VoiceTextRequest(text=transcript.text, language=language_code)
+    result = await _process_voice_text(voice_text, request, profile, asr_provider="gnani")
+    result["transcript"] = transcript.text
+    result["transcript_language"] = transcript.language
+    result["asr_model"] = transcript.metadata.get("model")
+    return result
 
 
-def _persist_voice(pool, elder_id: str, body: VoiceTextRequest, result: dict[str, Any]) -> str:
+def _persist_voice(pool, elder_id: str, body: VoiceTextRequest, result: dict[str, Any], asr_provider: str) -> str:
     intent, sentiment, emergency = result["intent"], result["sentiment"], result["emergency"]
     with pool.connection() as connection:
         with connection.cursor() as cursor:
@@ -358,7 +512,7 @@ def _persist_voice(pool, elder_id: str, body: VoiceTextRequest, result: dict[str
                 (elder_id, str(body.session_id) if body.session_id else None, result["transcript"], body.language,
                  None, intent["intent"], intent.get("confidence"), sentiment["label"], sentiment["score"],
                  emergency["is_emergency"], emergency["terms"], result["assistant_text"], result["action"]["type"],
-                 result["action"]["target"], "browser", "browser", "local_rules", result["latency_ms"]),
+                 result["action"]["target"], asr_provider, result["providers_used"].get("tts", "browser"), result["providers_used"].get("llm", "local_rules"), result["latency_ms"]),
             )
             interaction_id = str(cursor.fetchone()[0])
             if emergency["is_emergency"]:
@@ -374,18 +528,19 @@ def _persist_voice(pool, elder_id: str, body: VoiceTextRequest, result: dict[str
 
 @voice_router.get("/status", summary="Show AI provider readiness without secrets")
 async def voice_status() -> dict[str, Any]:
-    mode = os.getenv("AI_MODE", "mock").strip().lower()
-    configured = ["local_rules", "browser"]
-    degraded = ["asr", "tts"]
-    if mode in {"hybrid", "gnani"}:
+    mode = configured_ai_mode()
+    configured = ["local_rules", "browser_speech_synthesis"]
+    degraded = []
+    if mode in {"groq", "hybrid"}:
         if os.getenv("GEMINI_API_KEY", "").strip(): configured.append("gemini")
         if os.getenv("GROQ_API_KEY", "").strip(): configured.append("groq")
-        if not {"gemini", "groq"}.intersection(configured): degraded.append("llm")
+        if mode == "groq" and "groq" not in configured or mode == "hybrid" and not {"gemini", "groq"}.intersection(configured): degraded.append("llm")
     else:
         degraded.append("llm")
-    if mode == "gnani":
-        if os.getenv("GNANI_API_KEY", "").strip(): configured.append("gnani_configured_unverified")
-        degraded.extend(["gnani_asr", "gnani_tts"])
+    if os.getenv("GNANI_API_KEY", "").strip():
+        configured.extend(("gnani_stt_configured", "gnani_tts_configured"))
+    else:
+        degraded.extend(("gnani_stt", "gnani_tts"))
     return {"ai_mode": mode, "configured_providers": configured, "degraded_services": degraded, "requires_api_keys": bool(degraded)}
 
 
@@ -416,6 +571,84 @@ async def caregiver_interactions(elder_id: UUID, user: CurrentUser, date_filter:
         params["and"] = f"(created_at.lt.{end.isoformat()})"
     rows = await request_json("GET", rest_table_path("voice_interactions"), token=user["access_token"], params=params)
     return {"items": rows, "limit": limit}
+
+
+@caregiver_voice_router.get("/dashboard", summary="Load caregiver dashboard data in one authorized request")
+async def caregiver_dashboard(
+    request: Request,
+    user: CurrentUser,
+    elder_id: UUID | None = None,
+    include_data: bool = True,
+) -> dict[str, Any]:
+    """Return the caregiver dashboard in one API request and one data query."""
+    def read_dashboard(pool) -> dict[str, Any]:
+        with pool.connection() as connection:
+            with connection.cursor() as cursor:
+                _set_auth_user(cursor, user["id"])
+                cursor.execute(
+                    """
+                    with selected_elder as (
+                        select e.id, e.name, e.age, e.city, e.lives_alone, e.language, e.doctor_name, e.doctor_phone
+                        from public.elders e
+                        where (
+                            (%s::uuid is not null and e.id=%s::uuid
+                                and private.has_elder_role(e.id,array['admin','caregiver']))
+                            or (%s::uuid is null and e.id=(
+                                select m.elder_id from public.elder_memberships m
+                                where m.user_id=%s::uuid and m.status='active'
+                                  and m.role in ('admin','caregiver')
+                                order by m.created_at asc limit 1
+                            ))
+                        )
+                        limit 1
+                    )
+                    select
+                        to_jsonb(e) as elder,
+                        case when %s then jsonb_build_object(
+                            'events', coalesce((select jsonb_agg(to_jsonb(x)) from (
+                                select * from public.events where elder_id=e.id order by starts_at asc limit 100
+                            ) x), '[]'::jsonb),
+                            'medicines', coalesce((select jsonb_agg(to_jsonb(x)) from (
+                                select * from public.medicines where elder_id=e.id order by created_at asc limit 100
+                            ) x), '[]'::jsonb),
+                            'medicine-logs', coalesce((select jsonb_agg(to_jsonb(x)) from (
+                                select * from public.medicine_logs where elder_id=e.id order by scheduled_for desc limit 100
+                            ) x), '[]'::jsonb),
+                            'memories', coalesce((select jsonb_agg(to_jsonb(x)) from (
+                                select * from public.memories where elder_id=e.id order by created_at desc limit 100
+                            ) x), '[]'::jsonb),
+                            'daily-logs', coalesce((select jsonb_agg(to_jsonb(x)) from (
+                                select * from public.daily_logs where elder_id=e.id order by log_date desc limit 30
+                            ) x), '[]'::jsonb),
+                            'alerts', coalesce((select jsonb_agg(to_jsonb(x)) from (
+                                select id,status,created_at,type from public.alerts where elder_id=e.id order by created_at desc limit 100
+                            ) x), '[]'::jsonb),
+                            'voice-notes', coalesce((select jsonb_agg(to_jsonb(x)) from (
+                                select id,transcript,created_at from public.voice_notes where elder_id=e.id order by created_at desc limit 10
+                            ) x), '[]'::jsonb)
+                        ) else '{}'::jsonb end as data,
+                        jsonb_build_object(
+                            'count', (select count(*) from public.voice_interactions where elder_id=e.id),
+                            'last_active', coalesce((select to_jsonb(created_at) from public.voice_interactions where elder_id=e.id order by created_at desc limit 1), to_jsonb(''::text)),
+                            'pending_alerts', (select count(*) from public.safety_alerts where elder_id=e.id and status='pending'),
+                            'open_alerts', (select count(*) from public.alerts where elder_id=e.id and status='open'),
+                            'mood', coalesce((select sentiment from public.voice_interactions where elder_id=e.id order by created_at desc limit 1), '')
+                        ) as voice_stats,
+                        (select to_jsonb(d) from (
+                            select id,first_paired_at,last_seen_at,is_active from public.paired_devices
+                            where elder_id=e.id and is_active=true order by first_paired_at desc limit 1
+                        ) d) as paired_device
+                    from selected_elder e
+                    """,
+                    (str(elder_id) if elder_id else None, str(elder_id) if elder_id else None,
+                     str(elder_id) if elder_id else None, user["id"], include_data),
+                )
+                result = cursor.fetchone()
+                if not result:
+                    raise HTTPException(status_code=404, detail="Care profile not found or not accessible.")
+                return {"elder": result[0], "data": result[1], "voice_stats": result[2], "paired_device": result[3]}
+
+    return await _run_db(request, read_dashboard)
 
 
 @caregiver_voice_router.get("/elders/{elder_id}/alerts", summary="List safety alerts visible to this caregiver")

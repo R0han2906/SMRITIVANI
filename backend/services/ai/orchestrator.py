@@ -35,8 +35,8 @@ class VoiceResponse:
 class VoiceOrchestrator:
     """Use local rules in mock mode; external providers can be added by config."""
 
-    async def process_text(self, text: str, elderly_id: str, session_id: str | None = None, language: str = "hi-IN", name: str = "", history: list[dict[str, str]] | None = None, care_context: str = "") -> VoiceResponse:
-        del elderly_id, session_id, language
+    async def process_text(self, text: str, elderly_id: str, session_id: str | None = None, language: str = "hi-IN", name: str = "", history: list[dict[str, str]] | None = None, care_context: str = "", asr_provider: str = "browser") -> VoiceResponse:
+        del elderly_id, session_id
         started = time.perf_counter()
         cleaned = " ".join(text.split())
         if not cleaned:
@@ -50,6 +50,9 @@ class VoiceOrchestrator:
             response, llm_provider = local_response(intent, name, language), "local_rules"
         else:
             response, llm_provider = await generate_response(intent, cleaned, name, history, language, care_context)
+        warnings = []
+        if llm_provider == "local_rules" and not emergency.is_emergency:
+            warnings.append("Conversational AI did not respond; using a short language-matched fallback.")
         return VoiceResponse(
             transcript=cleaned,
             intent=asdict(intent),
@@ -59,10 +62,10 @@ class VoiceOrchestrator:
             assistant_audio_base64=None,
             audio_mime=None,
             action={"type": intent.action_type, "target": intent.action_target},
-            providers_used={"asr": "browser", "nlu": "local_rules", "sentiment": "local_rules", "emergency": "local_rules", "llm": llm_provider, "tts": "browser"},
+            providers_used={"asr": asr_provider, "nlu": "local_rules", "sentiment": "local_rules", "emergency": "local_rules", "llm": llm_provider, "tts": "pending"},
             latency_ms=round((time.perf_counter() - started) * 1000),
-            degraded_mode=True,
-            warnings=["Using local rule-based responses. External AI providers are not configured."],
+            degraded_mode=llm_provider == "local_rules" and not emergency.is_emergency,
+            warnings=warnings,
         )
 
 

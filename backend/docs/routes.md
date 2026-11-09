@@ -1,7 +1,5 @@
 # Frontend API Routes
 
-> **Pairing and voice additions:** see [API_REFERENCE.md](../../docs/API_REFERENCE.md) for the added contracts. They depend on the proposed `0004_device_pairing_voice.sql` migration and are not ready against a database until the project owner reviews and applies it.
-
 This document describes the routes currently mounted by the FastAPI app. Unless configured otherwise, the base URL is `http://127.0.0.1:8020` and the API prefix is `/api`.
 
 ## Authentication and request conventions
@@ -13,11 +11,41 @@ This document describes the routes currently mounted by the FastAPI app. Unless 
 - List routes return `{ "items": [...], "limit": n, "offset": n }`. `limit` defaults to 100 (maximum 500), `offset` defaults to 0.
 - Database RLS restricts records to the signed-in user's active elder memberships and role. A missing or inaccessible item commonly returns 404. Invalid request/model values return 422; database policy denials can return 403.
 
-## Auth routes
+## Paired-device voice routes
+
+The elderly device must first be paired using `POST /api/pairing/verify`. The frontend stores the returned device token and sends it as `X-Device-Token`. The recorded-audio endpoint accepts a WAV body and submits it to Gnani STT; keep the API key in the backend environment only. Gnani's documented REST limit is 30 seconds per recording, so keep recordings shorter than that. Non-emergency replies use Groq when `AI_MODE=groq` (or the configured hybrid provider order), and Gnani TTS returns spoken WAV in `assistant_audio_base64` with `audio_mime: "audio/wav"`. If TTS is unavailable, the response still contains `assistant_text` and the web client uses browser speech synthesis. [Gnani STT](https://docs.gnani.ai/api/STT/speech-to-text) and [Gnani TTS](https://docs.gnani.ai/api/TTS/tts-inference).
+
+### `GET /api/pairing/resources?resources=medicines,events` — load patient-screen data together
+
+Requires `X-Device-Token`. `resources` is a comma-separated list of the same allowlisted resource names used by the patient UI; it may be omitted when only the paired profile is needed. Returns `{ "elderly_profile": {...}, "data": { "medicines": [...], "events": [...] } }`. The backend validates the device token and reads the requested resources in one database operation. Each resource is limited to its latest/next 100 rows according to its configured ordering.
+
+### `POST /api/voice/process?language_code=hi-IN` — transcribe and process recorded speech
+
+Headers: `X-Device-Token: <paired_device_token>` and `Content-Type: audio/wav`. The browser captures microphone audio, converts it to 16 kHz mono WAV, and uploads the bytes. `language_code` is optional and defaults to `hi-IN`; it is the configured language used for both reply generation and speech, while Gnani's detected language is returned separately as `transcript_language`. The response contains the transcript, assistant response/action, detected intent, and interaction ID. Successful TTS also returns `assistant_audio_base64`, `audio_mime: "audio/wav"`, and `providers_used.tts: "gnani"`; on TTS failure these are null and browser speech is used. `providers_used.llm` identifies Groq, Gemini, or local fallback. Emergency detection and safety alert persistence run locally and do not depend on LLM output. Errors include 401 for an invalid device token, 413 for an oversized recording, 415 for a non-WAV body, 422 for invalid/empty audio, 429 for Gnani rate limits, and 502/503 for upstream or configuration problems.
+
+Example:
+
+```http
+POST /api/voice/process?language_code=hi-IN
+X-Device-Token: <paired_device_token>
+Content-Type: audio/wav
+
+<raw WAV bytes>
+```
+
+### `POST /api/voice/text` — process text recognized by browser fallback
+
+Requires the paired-device token and JSON `{ "text": "...", "language": "hi-IN" }`. This fallback uses browser speech recognition and does not call Gnani STT.
+
+### `GET /api/voice/status` — inspect voice provider readiness
+
+Returns provider names and readiness only; it never returns secret values. `gnani_stt_configured` and `gnani_tts_configured` mean the key is present, not that the current request has successfully authenticated upstream.
 
 ### `GET /api/health` — check API/database availability
 
 No bearer token required. Returns `{ "status": "ok", "database": "connected" }` when the PostgreSQL pool is available. Returns 503 when the pool is unavailable. This does not verify Supabase Auth configuration or migration completeness.
+
+## Auth routes
 
 ### `POST /api/auth/signup` — create a caregiver account
 
@@ -133,6 +161,14 @@ Requires a signed-in patient account. Request:
 The API normalizes formatting and sends only a SHA-256 digest to PostgreSQL. Success returns `{ "elder_id": "...", "elder_name": "Rohan Patel", "linked_at": "..." }`. Invalid, expired, already-used, or unavailable codes share a generic 400 response. Patient accounts can claim one elder profile.
 
 ## Shared elder resource routes
+
+## Caregiver dashboard
+
+### `GET /api/caregiver/dashboard`
+
+Requires a caregiver bearer token. This aggregate endpoint loads the selected elder's profile, dashboard lists, recent voice metrics, pending safety-alert count, and paired-device status in one API request. The backend checks an active `admin` or `caregiver` membership before reading elder-scoped rows. If `elder_id` is omitted, the first accessible caregiver profile is selected. `include_data=false` returns only profile and summary metrics for lightweight refreshes.
+
+Example: `/api/caregiver/dashboard?elder_id=<elder-uuid>`
 
 Base collection path: `/api/elders/{elder_id}/{resource}`. Record path: `/api/elders/{elder_id}/{resource}/{record_id}`. Replace `{resource}` with one of the exact slugs below. The elder must be accessible to the authenticated account. Any role restrictions listed are also enforced by database RLS; route allowlists alone do not grant permission.
 

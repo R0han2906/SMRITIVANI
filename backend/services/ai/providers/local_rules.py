@@ -31,6 +31,10 @@ def classify_intent(text: str) -> IntentResult:
         return IntentResult(provider="local_rules", confidence=0.84, latency_ms=round((time.perf_counter() - started) * 1000), intent="general", sentiment="neutral")
     for intent, words, action, target in _INTENTS:
         if any(word in normalized for word in words):
+            if intent == "bhajan":
+                play_request = ("play", "start", "sing", "listen", "put on", "sunao", "sunaao", "chalao", "lagao", "bajao", "चलाओ", "सुनाओ", "बजाओ")
+                if not any(verb in normalized for verb in play_request) and normalized not in {"bhajan", "भजन", "aarti", "आरती"}:
+                    action, target = "none", ""
             return IntentResult(provider="local_rules", confidence=0.86 if intent == "emergency" else 0.78, latency_ms=round((time.perf_counter() - started) * 1000), intent=intent, sentiment=classify_sentiment(normalized).label, action_type=action, action_target=target)
     return IntentResult(provider="local_rules", confidence=0.5, latency_ms=round((time.perf_counter() - started) * 1000), intent="general", sentiment=classify_sentiment(normalized).label)
 

@@ -5,7 +5,7 @@
 - `backend/app.py` loads `backend/.env`, creates the FastAPI application, mounts routers, and opens/closes the PostgreSQL pool during lifespan.
 - `backend/routes/` contains HTTP endpoints. `backend/middleware/auth.py` validates bearer tokens using Supabase Auth.
 - `backend/schema/` contains Pydantic request models and ordered SQL migrations.
-- `backend/services/supabase.py` makes caller-scoped Auth/PostgREST requests. `backend/services/database.py` opens the direct PostgreSQL pool used by startup and health checks.
+- `backend/services/supabase.py` makes caller-scoped Auth/PostgREST requests. `backend/services/database.py` opens the direct PostgreSQL pool used by startup, health checks, and the access-checked caregiver dashboard aggregate endpoint.
 - `backend/utils/` contains shared helpers such as claim-code generation and normalization.
 - Resource endpoints restrict writable columns before making PostgREST requests; database RLS still decides whether the caller may read or change each row.
 
@@ -45,13 +45,20 @@ Put local values in ignored `backend/.env`. The application currently reads:
 | `DATABASE_URL` | Yes | Direct PostgreSQL connection used to open the startup pool. Use the proper SSL options for hosted Supabase. |
 | `SUPABASE_URL` | Yes for Auth/PostgREST | Supabase project URL. Must match the database project. |
 | `SUPABASE_PUBLISHABLE_KEY` | Yes for Auth/PostgREST | Supabase public/publishable project key; caller bearer tokens provide user identity. |
+| `DEVICE_PAIRING_PEPPER` | Yes for device-code generation and verification | Unique random secret of at least 32 characters. Keep the same value across app restarts and never commit it. Changing it invalidates any unredeemed pairing code. |
 | `APP_NAME` | No | FastAPI title; defaults to `SmritiVani API`. |
 | `API_PREFIX` | No | Router prefix; defaults to `/api`. |
 | `HOST` | No | Local Uvicorn host; defaults to `127.0.0.1`. |
 | `PORT` | No | Local Uvicorn port; defaults to `8020`. |
 | `RELOAD` | No | Uvicorn reload switch; defaults to `false`. |
+| `GNANI_API_KEY` | Required for recorded-audio transcription | Gnani Vachana STT API key. Keep it in ignored `backend/.env`; never expose it to the browser or commit it. |
+| `GNANI_STT_MODEL` | No | Gnani STT model form value; defaults to `prisma-v2.5`. |
+| `GNANI_TTS_MODEL` | No | Gnani TTS model; defaults to `timbre-v2.5`. The backend selects a preferred voice for each supported Gnani language. |
+| `GROQ_API_KEY` | Required when `AI_MODE=groq` | Groq chat-completion key. Keep it in ignored `backend/.env`; never expose it to the browser or commit it. |
+| `GROQ_MODEL` | No | Groq model ID; defaults to `openai/gpt-oss-20b`. |
+| `AI_MODE` | No | `mock` uses local response rules; `groq` uses Groq for non-emergency reply text; `hybrid` tries Gemini then Groq. Defaults to `mock`. |
 
-`GNANI_API_KEY` is not currently read by the application; add it when implementing the Gnani service. Do not add Supabase service-role keys or JWT signing secrets for ordinary user-scoped requests. Commit only a placeholder `.env.example`, never real values.
+The recorded voice route sends WAV audio from the paired elder device to Gnani for transcription. For non-emergency turns, Groq generates response text and Gnani synthesizes it as WAV; the browser plays audio returned by the API. Emergency detection, action selection, and alert persistence stay in the local safety path and do not depend on Groq. If synthesis fails, text is still returned and the browser uses speech synthesis. Do not add Supabase service-role keys or JWT signing secrets for ordinary user-scoped requests. Commit only a placeholder `.env.example`, never real values.
 
 ## Migrations
 

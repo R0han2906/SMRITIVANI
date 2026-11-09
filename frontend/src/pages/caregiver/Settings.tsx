@@ -4,7 +4,8 @@ import { ArrowLeft, Check, Heart, LogOut, Settings as SettingsIcon, User } from 
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { CaregiverBottomNav } from "../../components/layout/CaregiverChrome";
-import { disablePatientDevice, getCurrentElderId, getElderlyProfiles, saveCurrentElderId, updateElderProfile, createDevicePairingCode, getCaregiverPairedDevices, revokeCaregiverPairedDevices } from "../../services/api";
+import { disablePatientDevice, getCurrentElderId, saveCurrentElderId, updateElderProfile, createDevicePairingCode, getCaregiverDashboard, revokeCaregiverPairedDevices } from "../../services/api";
+import { GNANI_SPEECH_LANGUAGES, toGnaniLanguageCode } from "../../utils/languages";
 
 type Elder = { id: string; name: string; age?: number | null; city?: string | null; language?: string; lives_alone?: boolean; doctor_name?: string | null; doctor_phone?: string | null };
 const inputClass = "h-12 w-full rounded-xl border-2 border-line-strong bg-cream px-4 text-base outline-none focus:border-brand";
@@ -22,7 +23,7 @@ export default function Settings() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isSavingElder, setIsSavingElder] = useState(false);
-  const [elderDraft, setElderDraft] = useState({ name: "", age: "", language: "hindi", city: "", lives_alone: true, doctor_name: "", doctor_phone: "" });
+  const [elderDraft, setElderDraft] = useState({ name: "", age: "", language: "hi-IN", city: "", lives_alone: true, doctor_name: "", doctor_phone: "" });
   const [profile, setProfile] = useState({
     display_name: typeof user?.display_name === "string" ? user.display_name : "",
     phone: typeof user?.phone === "string" ? user.phone : "",
@@ -39,14 +40,14 @@ export default function Settings() {
 
   useEffect(() => {
     let active = true;
-    getElderlyProfiles().then(({ items }) => {
-      const selectedId = getCurrentElderId();
-      const item = items.find((row) => row.id === selectedId) ?? items[0];
-      if (item && typeof item.id === "string" && typeof item.name === "string") {
+    getCaregiverDashboard(getCurrentElderId(), false).then((result) => {
+      const item = result.elder;
+      if (typeof item.id === "string" && typeof item.name === "string") {
         saveCurrentElderId(item.id);
         if (active) {
-          const loaded = { id: item.id, name: item.name, age: typeof item.age === "number" ? item.age : null, city: typeof item.city === "string" ? item.city : null, language: typeof item.language === "string" ? item.language : "hindi", lives_alone: Boolean(item.lives_alone), doctor_name: typeof item.doctor_name === "string" ? item.doctor_name : "", doctor_phone: typeof item.doctor_phone === "string" ? item.doctor_phone : "" };
+          const loaded = { id: item.id, name: item.name, age: typeof item.age === "number" ? item.age : null, city: typeof item.city === "string" ? item.city : null, language: toGnaniLanguageCode(item.language), lives_alone: Boolean(item.lives_alone), doctor_name: typeof item.doctor_name === "string" ? item.doctor_name : "", doctor_phone: typeof item.doctor_phone === "string" ? item.doctor_phone : "" };
           setElder(loaded);
+          setPairedDevice(result.paired_device);
           setElderDraft({ name: loaded.name, age: loaded.age === null ? "" : String(loaded.age), language: loaded.language ?? "hindi", city: loaded.city ?? "", lives_alone: loaded.lives_alone ?? true, doctor_name: loaded.doctor_name ?? "", doctor_phone: loaded.doctor_phone ?? "" });
         }
       }
@@ -55,14 +56,6 @@ export default function Settings() {
     }).finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
   }, []);
-
-  useEffect(() => {
-    if (!elder?.id) return;
-    let active = true;
-    getCaregiverPairedDevices(elder.id).then(({ items }) => { if (active) setPairedDevice(items.find((item) => item.is_active === true) ?? null); })
-      .catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : "Could not check the paired device."); });
-    return () => { active = false; };
-  }, [elder?.id]);
 
   const saveElder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -131,7 +124,7 @@ export default function Settings() {
           {isLoading ? <p className="mt-4 text-muted">Loading care profile…</p> : elder ? <form onSubmit={(event) => void saveElder(event)} className="mt-5 grid gap-4 sm:grid-cols-2">
             <label className="block"><span className="mb-1.5 block text-sm font-bold">Name</span><input required maxLength={200} value={elderDraft.name} onChange={(event) => setElderDraft({ ...elderDraft, name: event.target.value })} className={inputClass} /></label>
             <label className="block"><span className="mb-1.5 block text-sm font-bold">Age</span><input type="number" min={0} max={125} value={elderDraft.age} onChange={(event) => setElderDraft({ ...elderDraft, age: event.target.value })} className={inputClass} /></label>
-            <label className="block"><span className="mb-1.5 block text-sm font-bold">Language</span><input maxLength={40} value={elderDraft.language} onChange={(event) => setElderDraft({ ...elderDraft, language: event.target.value })} className={inputClass} /></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">Primary language</span><select required value={elderDraft.language} onChange={(event) => setElderDraft({ ...elderDraft, language: event.target.value })} className={inputClass}>{GNANI_SPEECH_LANGUAGES.map(({ code, label }) => <option key={code} value={code}>{label}</option>)}</select><span className="mt-1 block text-xs text-muted">Used for microphone recognition and spoken replies.</span></label>
             <label className="block"><span className="mb-1.5 block text-sm font-bold">City or town</span><input maxLength={160} value={elderDraft.city} onChange={(event) => setElderDraft({ ...elderDraft, city: event.target.value })} className={inputClass} /></label>
             <label className="block"><span className="mb-1.5 block text-sm font-bold">Doctor’s name</span><input value={elderDraft.doctor_name} onChange={(event) => setElderDraft({ ...elderDraft, doctor_name: event.target.value })} className={inputClass} /></label>
             <label className="block"><span className="mb-1.5 block text-sm font-bold">Doctor’s phone</span><input type="tel" value={elderDraft.doctor_phone} onChange={(event) => setElderDraft({ ...elderDraft, doctor_phone: event.target.value })} className={inputClass} /></label>

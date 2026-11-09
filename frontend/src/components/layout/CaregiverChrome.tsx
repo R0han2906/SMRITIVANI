@@ -2,7 +2,7 @@ import { motion } from "framer-motion";
 import { Bell, Brain, CalendarDays, Heart, Home, Mic, User } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getCurrentElderId, getElderlyProfiles, listElderResource } from "../../services/api";
+import { getCaregiverDashboard, getCurrentElderId } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
@@ -21,14 +21,9 @@ export function CaregiverTopNav() {
 
   useEffect(() => {
     let active = true;
-    getElderlyProfiles().then(({ items }) => {
-      const selectedId = getCurrentElderId();
-      const elder = items.find((item) => item.id === selectedId) ?? items[0];
-      if (!elder || typeof elder.id !== "string") return;
-      return listElderResource(elder.id, "alerts").then(({ items: alerts }) => {
-        if (active) setOpenAlerts(alerts.filter((alert) => alert.status === "open").length);
-      });
-    }).catch(() => { if (active) setOpenAlerts(0); });
+    getCaregiverDashboard(getCurrentElderId(), false)
+      .then((summary) => { if (active) setOpenAlerts(summary.voice_stats.open_alerts); })
+      .catch(() => { if (active) setOpenAlerts(0); });
     return () => { active = false; };
   }, []);
 

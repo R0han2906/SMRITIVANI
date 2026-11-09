@@ -5,6 +5,7 @@ const ELDER_ID_KEY = "smritivani.elder_id";
 const PATIENT_DEVICE_READY_KEY = "smritivani.patient_device_ready";
 const CAREGIVER_UI_UNLOCKED_KEY = "smritivani.caregiver_ui_unlocked";
 const DEVICE_TOKEN_KEY = "smritivani.device_token";
+const DEVICE_STATE_EVENT = "smritivani:device-state-change";
 
 export type AuthSession = { access_token?: string; refresh_token?: string; user?: Record<string, unknown> };
 export type ElderProfileInput = {
@@ -36,6 +37,7 @@ export function saveDevicePairing(pairing: { device_token: string; elderly_profi
   if (typeof pairing.elderly_profile.id === "string") localStorage.setItem(ELDER_ID_KEY, pairing.elderly_profile.id);
   localStorage.setItem(PATIENT_DEVICE_READY_KEY, "true");
   sessionStorage.removeItem(CAREGIVER_UI_UNLOCKED_KEY);
+  window.dispatchEvent(new Event(DEVICE_STATE_EVENT));
 }
 export function isPatientDeviceReady() {
   // Return true if device token exists (patient is paired with a device)
@@ -45,7 +47,9 @@ export function disablePatientDevice() {
   localStorage.removeItem(PATIENT_DEVICE_READY_KEY);
   localStorage.removeItem(DEVICE_TOKEN_KEY);
   localStorage.removeItem(ELDER_ID_KEY);
+  window.dispatchEvent(new Event(DEVICE_STATE_EVENT));
 }
+export const DEVICE_STATE_CHANGE_EVENT = DEVICE_STATE_EVENT;
 export function unlockCaregiverInterface() { sessionStorage.setItem(CAREGIVER_UI_UNLOCKED_KEY, "true"); }
 export function isCaregiverInterfaceUnlocked() { return sessionStorage.getItem(CAREGIVER_UI_UNLOCKED_KEY) === "true"; }
 
@@ -145,11 +149,30 @@ export const revokeCaregiverPairedDevices = (elderId: string) => request<{ revok
 export type DevicePairing = { device_token: string; device_id: string; elderly_profile: Record<string, unknown> };
 export const verifyDevicePairing = (claim_code: string) => request<DevicePairing>("/pairing/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ claim_code }) });
 export const getPairedElderProfile = () => request<{ elderly_profile: Record<string, unknown> }>("/pairing/profile");
+export const getPairedElderResources = (resources: ElderResource[]) => {
+  const query = new URLSearchParams();
+  if (resources.length) query.set("resources", [...new Set(resources)].join(","));
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return request<{ elderly_profile: Record<string, unknown>; data: Partial<Record<ElderResource, Record<string, unknown>[]>> }>(`/pairing/resources${suffix}`);
+};
 export const unpairCurrentDevice = () => request<void>("/pairing/device", { method: "DELETE" });
 export const sendVoiceText = (text: string, language = "hi-IN") => request<Record<string, unknown>>("/voice/text", { method: "POST", body: JSON.stringify({ text, language }) });
-export const sendVoice = (audioBlob: Blob) => request<Record<string, unknown>>("/voice/process", { method: "POST", headers: { "Content-Type": audioBlob.type || "application/octet-stream" }, body: audioBlob });
+export const sendVoice = (audioBlob: Blob, language = "hi-IN") => request<Record<string, unknown>>(`/voice/process?language_code=${encodeURIComponent(language)}`, { method: "POST", headers: { "Content-Type": audioBlob.type || "application/octet-stream" }, body: audioBlob });
 export const getVoiceHistory = (limit = 20) => request<{ items: Record<string, unknown>[] }>(`/voice/history?limit=${limit}`);
 export const getCaregiverVoiceInteractions = (elderId: string, date?: string) => request<{ items: Record<string, unknown>[] }>(`/caregiver/elders/${encodeURIComponent(elderId)}/interactions${date ? `?date=${encodeURIComponent(date)}` : ""}`);
+export type CaregiverDashboard = {
+  elder: Record<string, unknown>;
+  data: Partial<Record<ElderResource, Record<string, unknown>[]>>;
+  voice_stats: { count: number; last_active: string; pending_alerts: number; open_alerts: number; mood: string };
+  paired_device: Record<string, unknown> | null;
+};
+export const getCaregiverDashboard = (elderId?: string | null, includeData = true) => {
+  const params = new URLSearchParams();
+  if (elderId) params.set("elder_id", elderId);
+  if (!includeData) params.set("include_data", "false");
+  const query = params.toString();
+  return request<CaregiverDashboard>(`/caregiver/dashboard${query ? `?${query}` : ""}`);
+};
 export const getCaregiverSafetyAlerts = (elderId: string, status?: string) => request<{ items: Record<string, unknown>[] }>(`/caregiver/elders/${encodeURIComponent(elderId)}/alerts${status ? `?status=${encodeURIComponent(status)}` : ""}`);
 export const updateCaregiverSafetyAlert = (alertId: string, action: "acknowledge" | "resolve" | "false-positive") => request<Record<string, unknown>>(`/caregiver/alerts/${encodeURIComponent(alertId)}/${action}`, { method: "POST" });
 export const getCaregiverDailySummary = (elderId: string, date: string) => request<Record<string, unknown>>(`/caregiver/elders/${encodeURIComponent(elderId)}/daily-summary?summary_date=${encodeURIComponent(date)}`);

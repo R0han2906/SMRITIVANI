@@ -25,21 +25,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createElderlyProfile, createElderResource, saveCurrentElderId } from "../services/api";
-
-const languages = [
-  "Hindi",
-  "Tamil",
-  "Bengali",
-  "Telugu",
-  "Marathi",
-  "Gujarati",
-  "Kannada",
-  "Malayalam",
-  "Punjabi",
-  "Odia",
-  "Assamese",
-  "English",
-];
+import { GNANI_SPEECH_LANGUAGES, getGnaniLanguageLabel } from "../utils/languages";
 
 const relationships = [
   "Son",
@@ -168,7 +154,7 @@ export default function Onboarding() {
     name: "",
     age: null as number | null,
     gender: "",
-    language: "Hindi",
+    language: "hi-IN",
     city: "",
     livesAlone: true,
     livesWith: "",
@@ -247,7 +233,7 @@ export default function Onboarding() {
       if (!id) {
         const elder = await createElderlyProfile({
           name: profile.name.trim(), age: profile.age,
-          language: profile.language.toLowerCase(), city: profile.city.trim() || null,
+          language: profile.language, city: profile.city.trim() || null,
           timezone: "Asia/Kolkata", lives_alone: profile.livesAlone,
           doctor_name: profile.doctorName.trim() || null, doctor_phone: profile.doctorPhone.trim() || null,
         });
@@ -431,7 +417,7 @@ export default function Onboarding() {
                       onClick={() => setLanguageOpen((value) => !value)}
                       className="flex h-14 w-full items-center justify-between rounded-xl border-2 border-line-strong bg-[#fffdf8] px-4 text-lg"
                     >
-                      <span>{profile.language}</span>
+                      <span>{getGnaniLanguageLabel(profile.language)}</span>
                       <ChevronDown className="size-5 text-muted" />
                     </button>
                     <AnimatePresence>
@@ -442,7 +428,7 @@ export default function Onboarding() {
                           exit={{ opacity: 0 }}
                           className="absolute inset-x-0 top-full z-40 mt-2 max-h-60 overflow-y-auto rounded-xl border border-line bg-white p-2 shadow-xl"
                         >
-                          {languages.map((language) => (
+                          {GNANI_SPEECH_LANGUAGES.map(({ code: language, label }) => (
                             <button
                               key={language}
                               type="button"
@@ -452,7 +438,7 @@ export default function Onboarding() {
                               }}
                               className="flex w-full items-center justify-between rounded-lg px-4 py-3 text-left hover:bg-brand-soft"
                             >
-                              {language}
+                              {label}
                               {profile.language === language && (
                                 <Check className="size-4 text-brand" />
                               )}
@@ -795,7 +781,7 @@ export default function Onboarding() {
                   {[
                     ["Name", profile.name],
                     ["Age", profile.age === null ? "Not provided" : `${profile.age}`],
-                    ["Language", profile.language],
+                    ["Language", getGnaniLanguageLabel(profile.language)],
                     ["City", profile.city],
                     [
                       "Lives",
