@@ -1,342 +1,158 @@
-import { useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import {
-  ArrowLeft,
-  Check,
-  ChevronRight,
-  Database,
-  Download,
-  Heart,
-  LogOut,
-  Settings as SettingsIcon,
-  Shield,
-  Trash2,
-  X,
-} from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { ArrowLeft, Check, Heart, LogOut, Settings as SettingsIcon, User } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import { CaregiverBottomNav } from "../../components/layout/CaregiverChrome";
+import { disablePatientDevice, getCurrentElderId, getElderlyProfiles, saveCurrentElderId, updateElderProfile, createDevicePairingCode, getCaregiverPairedDevices, revokeCaregiverPairedDevices } from "../../services/api";
 
-function Toggle({
-  active,
-  onChange,
-  danger = false,
-}: {
-  active: boolean;
-  onChange: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={active}
-      onClick={onChange}
-      className={`relative h-8 w-14 shrink-0 rounded-full transition-colors ${
-        active ? (danger ? "bg-red-500" : "bg-brand") : "bg-line-strong"
-      }`}
-    >
-      <motion.span
-        animate={{ x: active ? 26 : 4 }}
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-        className="absolute top-1 left-0 size-6 rounded-full bg-white shadow-sm"
-      />
-    </button>
-  );
-}
-
-const plans = [
-  {
-    name: "Prem (Love)",
-    price: "₹199",
-    badge: "Most popular",
-    color: "#7562a8",
-    tint: "bg-[#faf8ff]",
-    border: "border-[#cfc1ec]",
-    button: "bg-[#7562a8]",
-    features: [
-      "20 conversations per day",
-      "Medicine and event reminders",
-      "Voice biometrics",
-      "Weekly health report",
-      "Emergency keyword detection",
-    ],
-  },
-  {
-    name: "Seva (Care)",
-    price: "₹499",
-    badge: "Best value",
-    color: "#35675a",
-    tint: "bg-sage",
-    border: "border-[#b9d5c1]",
-    button: "bg-forest",
-    features: [
-      "Unlimited conversations",
-      "Everything in Prem",
-      "24/7 emergency monitoring",
-      "Family voice messages",
-      "Doctor report export",
-      "Priority voice processing",
-    ],
-  },
-];
+type Elder = { id: string; name: string; age?: number | null; city?: string | null; language?: string; lives_alone?: boolean; doctor_name?: string | null; doctor_phone?: string | null };
+const inputClass = "h-12 w-full rounded-xl border-2 border-line-strong bg-cream px-4 text-base outline-none focus:border-brand";
 
 export default function Settings() {
   const navigate = useNavigate();
+  const { logout, user, updateProfile } = useAuth();
   const reduceMotion = useReducedMotion();
-  const [appSettings, setAppSettings] = useState({ dark: false, bhajans: true });
-  const [notifications, setNotifications] = useState({
-    medicines: true,
-    emergency: true,
-    daily: true,
-    mood: false,
-    weekly: true,
+  const [elder, setElder] = useState<Elder | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pairingCode, setPairingCode] = useState("");
+  const [isCreatingPairingCode, setIsCreatingPairingCode] = useState(false);
+  const [pairedDevice, setPairedDevice] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [isSavingElder, setIsSavingElder] = useState(false);
+  const [elderDraft, setElderDraft] = useState({ name: "", age: "", language: "hindi", city: "", lives_alone: true, doctor_name: "", doctor_phone: "" });
+  const [profile, setProfile] = useState({
+    display_name: typeof user?.display_name === "string" ? user.display_name : "",
+    phone: typeof user?.phone === "string" ? user.phone : "",
+    city: typeof user?.city === "string" ? user.city : "",
   });
 
+  useEffect(() => {
+    setProfile({
+      display_name: typeof user?.display_name === "string" ? user.display_name : "",
+      phone: typeof user?.phone === "string" ? user.phone : "",
+      city: typeof user?.city === "string" ? user.city : "",
+    });
+  }, [user]);
+
+  useEffect(() => {
+    let active = true;
+    getElderlyProfiles().then(({ items }) => {
+      const selectedId = getCurrentElderId();
+      const item = items.find((row) => row.id === selectedId) ?? items[0];
+      if (item && typeof item.id === "string" && typeof item.name === "string") {
+        saveCurrentElderId(item.id);
+        if (active) {
+          const loaded = { id: item.id, name: item.name, age: typeof item.age === "number" ? item.age : null, city: typeof item.city === "string" ? item.city : null, language: typeof item.language === "string" ? item.language : "hindi", lives_alone: Boolean(item.lives_alone), doctor_name: typeof item.doctor_name === "string" ? item.doctor_name : "", doctor_phone: typeof item.doctor_phone === "string" ? item.doctor_phone : "" };
+          setElder(loaded);
+          setElderDraft({ name: loaded.name, age: loaded.age === null ? "" : String(loaded.age), language: loaded.language ?? "hindi", city: loaded.city ?? "", lives_alone: loaded.lives_alone ?? true, doctor_name: loaded.doctor_name ?? "", doctor_phone: loaded.doctor_phone ?? "" });
+        }
+      }
+    }).catch((loadError) => {
+      if (active) setError(loadError instanceof Error ? loadError.message : "Could not load your care profile.");
+    }).finally(() => { if (active) setIsLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!elder?.id) return;
+    let active = true;
+    getCaregiverPairedDevices(elder.id).then(({ items }) => { if (active) setPairedDevice(items.find((item) => item.is_active === true) ?? null); })
+      .catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : "Could not check the paired device."); });
+    return () => { active = false; };
+  }, [elder?.id]);
+
+  const saveElder = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!elder) return;
+    setError(""); setSuccess(""); setIsSavingElder(true);
+    try {
+      const updated = await updateElderProfile(elder.id, { name: elderDraft.name.trim(), age: elderDraft.age ? Number(elderDraft.age) : null, language: elderDraft.language, city: elderDraft.city.trim() || null, lives_alone: elderDraft.lives_alone, doctor_name: elderDraft.doctor_name.trim() || null, doctor_phone: elderDraft.doctor_phone.trim() || null });
+      setElder({ ...elder, name: String(updated.name ?? elderDraft.name), age: typeof updated.age === "number" ? updated.age : null, city: typeof updated.city === "string" ? updated.city : null, language: String(updated.language ?? elderDraft.language), lives_alone: Boolean(updated.lives_alone), doctor_name: typeof updated.doctor_name === "string" ? updated.doctor_name : "", doctor_phone: typeof updated.doctor_phone === "string" ? updated.doctor_phone : "" });
+      setSuccess("The care profile has been updated.");
+    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Could not update the care profile."); }
+    finally { setIsSavingElder(false); }
+  };
+
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(""); setSuccess(""); setIsSaving(true);
+    try {
+      await updateProfile({ display_name: profile.display_name.trim(), phone: profile.phone.trim(), city: profile.city.trim() });
+      setSuccess("Your account details have been saved.");
+    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Could not save your account details."); }
+    finally { setIsSaving(false); }
+  };
+
+  const generatePairingCode = async () => {
+    if (!elder) return;
+    setError(""); setSuccess(""); setIsCreatingPairingCode(true); setPairingCode("");
+    try {
+      const result = await createDevicePairingCode(elder.id);
+      setPairingCode(result.claim_code);
+      setSuccess("Pairing code created. It expires in 15 minutes and can be used once.");
+    } catch (issueError) { setError(issueError instanceof Error ? issueError.message : "Could not create a device pairing code."); }
+    finally { setIsCreatingPairingCode(false); }
+  };
+
+  const unpairDevice = async () => {
+    if (!elder) return;
+    setError(""); setSuccess("");
+    try { await revokeCaregiverPairedDevices(elder.id); setPairedDevice(null); setSuccess("The elderly device has been unpaired. Generate a new code to reconnect it."); }
+    catch (unpairError) { setError(unpairError instanceof Error ? unpairError.message : "Could not unpair the device."); }
+  };
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: reduceMotion ? 0 : 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: reduceMotion ? 0 : 0.45 }}
-      className="min-h-screen bg-cream pb-28 text-ink"
-    >
+    <motion.div initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }} animate={{ opacity: 1, y: 0 }} className="min-h-screen bg-cream pb-28 text-ink">
       <header className="fixed inset-x-0 top-0 z-50 border-b border-line bg-white/95 backdrop-blur-sm">
         <div className="mx-auto flex h-20 max-w-2xl items-center gap-4 px-4 sm:px-6">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="flex size-12 items-center justify-center rounded-xl bg-cream text-muted"
-          >
-            <ArrowLeft className="size-6" />
-          </button>
-          <h1 className="flex-1 text-2xl font-bold">Settings</h1>
-          <SettingsIcon className="size-6 text-muted" />
+          <button type="button" onClick={() => navigate("/caregiver")} aria-label="Back to dashboard" className="flex size-12 items-center justify-center rounded-xl bg-cream text-muted"><ArrowLeft className="size-6" /></button>
+          <h1 className="flex-1 text-2xl font-bold">Settings</h1><SettingsIcon className="size-6 text-muted" />
         </div>
       </header>
-
       <main className="mx-auto max-w-2xl px-4 pt-28 sm:px-6">
-        <section className="rounded-2xl border border-line bg-white p-6 text-center shadow-[4px_4px_0_#e6dece]">
-          <span className="mx-auto flex size-20 items-center justify-center rounded-full bg-brand-soft text-2xl font-bold text-brand">
-            RS
-          </span>
-          <h2 className="mt-4 text-2xl font-bold">Rahul Sharma</h2>
-          <p className="mt-1 text-muted">rahul.sharma@email.com</p>
-          <button type="button" className="mt-3 font-bold text-brand underline underline-offset-4">
-            Edit profile
-          </button>
-          <p className="mt-3 text-sm text-muted">Member since June 2025</p>
+        {error && <p role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
+        {success && <p role="status" className="mb-5 rounded-xl border border-[#b9d5c1] bg-sage p-4 text-sm font-bold text-forest">{success}</p>}
+
+        <section className="rounded-2xl border border-line bg-white p-6 shadow-[4px_4px_0_#e6dece]">
+          <div className="flex items-center gap-3"><span className="flex size-11 items-center justify-center rounded-xl bg-brand-soft text-brand"><User /></span><div><h2 className="text-xl font-bold">Caregiver account</h2><p className="text-sm text-muted">Update the details saved to your account.</p></div></div>
+          <form onSubmit={saveProfile} className="mt-6 space-y-4">
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">Name</span><input required value={profile.display_name} onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} className={inputClass} /></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">Phone</span><input type="tel" value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} className={inputClass} /></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">City</span><input value={profile.city} onChange={(event) => setProfile({ ...profile, city: event.target.value })} className={inputClass} /></label>
+            <button type="submit" disabled={isSaving || !profile.display_name.trim()} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-forest px-5 font-bold text-white disabled:opacity-50">{isSaving ? "Saving…" : <><Check className="size-4" /> Save account details</>}</button>
+          </form>
         </section>
 
-        <section className="mt-8">
-          <h2 className="text-2xl font-bold">Your plan</h2>
-          <motion.article
-            initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="relative mt-4 overflow-hidden rounded-2xl border-2 border-brand bg-white p-6 shadow-[5px_5px_0_#f9e4da]"
-          >
-            <span className="absolute top-0 right-0 rounded-bl-2xl bg-brand-soft px-4 py-2 text-xs font-bold text-brand">
-              CURRENT
-            </span>
-            <h3 className="text-2xl font-bold">Sneha (Free)</h3>
-            <p className="mt-1 text-xl text-muted">₹0 / month</p>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <div className="flex flex-col gap-3">
-                {[
-                  "5 voice conversations per day",
-                  "Basic medicine reminders",
-                  "Daily mood summary",
-                ].map((feature) => (
-                  <p key={feature} className="flex items-center gap-2 text-base">
-                    <Check className="size-5 shrink-0 text-forest" /> {feature}
-                  </p>
-                ))}
-              </div>
-              <div className="flex flex-col gap-3">
-                {[
-                  "No voice biometrics",
-                  "No emergency detection",
-                  "No unlimited conversations",
-                ].map((feature) => (
-                  <p key={feature} className="flex items-center gap-2 text-base text-muted">
-                    <X className="size-5 shrink-0 text-red-400" /> {feature}
-                  </p>
-                ))}
-              </div>
-            </div>
-            <div className="mt-6">
-              <div className="mb-2 flex justify-between gap-4 text-sm font-bold">
-                <span>3 of 5 conversations used today</span>
-                <span className="text-brand">60%</span>
-              </div>
-              <div className="h-3 overflow-hidden rounded-full bg-line">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: "60%" }}
-                  transition={{ duration: 0.8 }}
-                  className="h-full rounded-full bg-brand"
-                />
-              </div>
-            </div>
-          </motion.article>
-
-          <div className="mt-6 grid gap-5 sm:grid-cols-2">
-            {plans.map((plan, index) => (
-              <motion.article
-                key={plan.name}
-                initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.95 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ delay: reduceMotion ? 0 : index * 0.12 }}
-                className={`relative overflow-hidden rounded-2xl border bg-white p-6 ${plan.border}`}
-              >
-                <span
-                  className="absolute inset-x-0 top-0 h-1.5"
-                  style={{ backgroundColor: plan.color }}
-                />
-                <span
-                  className={`inline-block rounded-full px-3 py-1 text-xs font-bold ${plan.tint}`}
-                  style={{ color: plan.color }}
-                >
-                  {plan.badge}
-                </span>
-                <h3 className="mt-4 text-2xl font-bold">{plan.name}</h3>
-                <p className="mt-1 text-3xl font-bold" style={{ color: plan.color }}>
-                  {plan.price}
-                  <span className="text-base font-normal text-muted"> / month</span>
-                </p>
-                <div className="mt-6 flex min-h-48 flex-col gap-3">
-                  {plan.features.map((feature) => (
-                    <p key={feature} className="flex items-start gap-2 text-sm leading-5">
-                      <Check className="mt-0.5 size-4 shrink-0" style={{ color: plan.color }} />
-                      {feature}
-                    </p>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className={`mt-5 h-12 w-full rounded-xl font-bold text-white ${plan.button}`}
-                >
-                  Upgrade
-                </button>
-              </motion.article>
-            ))}
-          </div>
-          <p className="mt-4 text-center text-sm text-muted">
-            All plans include Gnani.ai voice technology. Cancel anytime.
-          </p>
+        <section className="mt-7 rounded-2xl border border-line bg-white p-6">
+          <h2 className="text-xl font-bold">Elder care profile</h2>
+          {isLoading ? <p className="mt-4 text-muted">Loading care profile…</p> : elder ? <form onSubmit={(event) => void saveElder(event)} className="mt-5 grid gap-4 sm:grid-cols-2">
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">Name</span><input required maxLength={200} value={elderDraft.name} onChange={(event) => setElderDraft({ ...elderDraft, name: event.target.value })} className={inputClass} /></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">Age</span><input type="number" min={0} max={125} value={elderDraft.age} onChange={(event) => setElderDraft({ ...elderDraft, age: event.target.value })} className={inputClass} /></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">Language</span><input maxLength={40} value={elderDraft.language} onChange={(event) => setElderDraft({ ...elderDraft, language: event.target.value })} className={inputClass} /></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">City or town</span><input maxLength={160} value={elderDraft.city} onChange={(event) => setElderDraft({ ...elderDraft, city: event.target.value })} className={inputClass} /></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">Doctor’s name</span><input value={elderDraft.doctor_name} onChange={(event) => setElderDraft({ ...elderDraft, doctor_name: event.target.value })} className={inputClass} /></label>
+            <label className="block"><span className="mb-1.5 block text-sm font-bold">Doctor’s phone</span><input type="tel" value={elderDraft.doctor_phone} onChange={(event) => setElderDraft({ ...elderDraft, doctor_phone: event.target.value })} className={inputClass} /></label>
+            <label className="flex min-h-12 items-center gap-3 font-bold sm:col-span-2"><input type="checkbox" checked={elderDraft.lives_alone} onChange={(event) => setElderDraft({ ...elderDraft, lives_alone: event.target.checked })} className="size-5 accent-brand" />Lives alone</label>
+            <button type="submit" disabled={isSavingElder || !elderDraft.name.trim()} className="min-h-12 rounded-xl bg-forest px-5 font-bold text-white disabled:opacity-50 sm:col-span-2">{isSavingElder ? "Saving…" : "Save care profile"}</button>
+          </form> : <p className="mt-4 text-muted">No care profile exists yet. <Link to="/onboarding" className="font-bold text-brand underline">Start onboarding</Link></p>}
         </section>
 
-        <section className="mt-8">
-          <h2 className="text-2xl font-bold">App settings</h2>
-          <div className="mt-4 rounded-2xl border border-line bg-white px-6">
-            {[
-              { title: "Language", value: "English / हिंदी" },
-              { title: "Voice speed", value: "Normal" },
-              { title: "Notification time", value: "8 AM, 8 PM" },
-            ].map((item, index) => (
-              <motion.button
-                key={item.title}
-                type="button"
-                initial={{ opacity: 0 }}
-                whileInView={{ opacity: 1 }}
-                viewport={{ once: true }}
-                transition={{ delay: reduceMotion ? 0 : index * 0.05 }}
-                className="flex min-h-16 w-full items-center gap-4 border-b border-line py-4 text-left"
-              >
-                <span className="flex-1 font-bold">{item.title}</span>
-                <span className="text-muted">{item.value}</span>
-                <ChevronRight className="size-5 text-muted" />
-              </motion.button>
-            ))}
-            <div className="flex min-h-16 items-center gap-4 border-b border-line py-4">
-              <span className="flex-1 font-bold">Dark mode</span>
-              <Toggle
-                active={appSettings.dark}
-                onChange={() => setAppSettings((current) => ({ ...current, dark: !current.dark }))}
-              />
-            </div>
-            <div className="flex min-h-16 items-center gap-4 py-4">
-              <span className="flex-1 font-bold">Auto-play bhajans</span>
-              <Toggle
-                active={appSettings.bhajans}
-                onChange={() =>
-                  setAppSettings((current) => ({ ...current, bhajans: !current.bhajans }))
-                }
-              />
-            </div>
-          </div>
+        <section className="mt-7 rounded-2xl border border-line bg-white p-6">
+          <div className="flex items-center gap-3"><span className="flex size-11 items-center justify-center rounded-xl bg-sage text-forest"><Heart className="fill-current" /></span><div><h2 className="text-xl font-bold">Pair your loved one’s device</h2><p className="text-sm text-muted">Create a one-time code to connect a separate tablet or phone. The elderly device won’t need an email or password.</p></div></div>
+          {isLoading ? <p className="mt-5 text-muted">Loading care profile…</p> : elder ? <>
+            <div className="mt-5 rounded-xl bg-cream p-4"><p className="font-bold">{elder.name}</p><p className="text-sm text-muted">{[elder.age ? `${elder.age} years` : null, elder.city].filter(Boolean).join(" · ")}</p></div>
+            <p className="mt-4 text-sm leading-6 text-muted">{pairedDevice ? `Device paired ${pairedDevice.first_paired_at ? `on ${new Date(String(pairedDevice.first_paired_at)).toLocaleString()}` : ""}. Last active ${pairedDevice.last_seen_at ? new Date(String(pairedDevice.last_seen_at)).toLocaleString() : "recently"}.` : "No device is paired. Share a one-time code with your loved one or enter it on their device. The code expires after 15 minutes."}</p>
+            {pairingCode && <p aria-live="polite" className="mt-4 rounded-xl border-2 border-forest bg-sage px-5 py-4 text-center font-mono text-4xl font-bold tracking-[0.4em] text-forest">{pairingCode}</p>}
+            <button type="button" onClick={() => void generatePairingCode()} disabled={isCreatingPairingCode} className="mt-4 min-h-12 rounded-xl bg-brand px-5 font-bold text-white disabled:opacity-50">{isCreatingPairingCode ? "Creating code…" : pairingCode ? "Generate replacement code" : "Generate pairing code"}</button>
+            {pairedDevice && <button type="button" onClick={() => void unpairDevice()} className="ml-3 mt-4 min-h-12 rounded-xl border border-red-200 bg-red-50 px-5 font-bold text-red-700">Unpair device</button>}
+          </> : <div className="mt-5 rounded-xl bg-cream p-4"><p className="font-bold">No care profile found</p><Link to="/onboarding" className="mt-3 inline-block font-bold text-brand underline">Set up a profile</Link></div>}
         </section>
 
-        <section className="mt-8">
-          <h2 className="text-2xl font-bold">Notifications</h2>
-          <div className="mt-4 rounded-2xl border border-line bg-white px-6">
-            {[
-              { key: "medicines" as const, title: "Medicine reminders" },
-              { key: "emergency" as const, title: "Emergency alerts", danger: true },
-              { key: "daily" as const, title: "Daily summary" },
-              { key: "mood" as const, title: "Mood changes" },
-              { key: "weekly" as const, title: "Weekly report" },
-            ].map((item, index) => (
-              <div
-                key={item.key}
-                className={`flex min-h-16 items-center gap-4 py-4 ${
-                  index < 4 ? "border-b border-line" : ""
-                }`}
-              >
-                <span className="flex-1 font-bold">{item.title}</span>
-                <Toggle
-                  active={notifications[item.key]}
-                  danger={item.danger}
-                  onChange={() =>
-                    setNotifications((current) => ({
-                      ...current,
-                      [item.key]: !current[item.key],
-                    }))
-                  }
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-8">
-          <h2 className="text-2xl font-bold">Data and privacy</h2>
-          <div className="mt-4 rounded-2xl border border-line bg-white px-6">
-            {[
-              { title: "Download voice data", icon: Download, color: "text-forest" },
-              { title: "Delete all recordings", icon: Trash2, color: "text-red-600" },
-              { title: "Privacy policy", icon: Shield, color: "text-muted" },
-              { title: "Gnani API data usage", icon: Database, color: "text-muted" },
-            ].map(({ title, icon: Icon, color }, index) => (
-              <button
-                key={title}
-                type="button"
-                className={`flex min-h-16 w-full items-center gap-4 py-4 text-left ${
-                  index < 3 ? "border-b border-line" : ""
-                } ${color}`}
-              >
-                <Icon className="size-5" />
-                <span className="flex-1 font-bold">{title}</span>
-                <ChevronRight className="size-5 text-muted" />
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-8 rounded-2xl border border-line bg-white p-6 text-center">
-          <Heart className="mx-auto size-7 fill-brand text-brand" />
-          <p className="mt-3 text-lg font-bold">SmritiVani v1.0</p>
-          <p className="mt-1 text-muted">Built with care for India’s elderly</p>
-          <p className="mt-3 text-sm text-muted">Powered by Gnani.ai Voice Technology</p>
-          <p className="mt-1 text-xs text-muted">Made for Gnani AI Instagram Challenge 2025</p>
-        </section>
-
-        <button
-          type="button"
-          onClick={() => navigate("/login")}
-          className="mt-8 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-red-50 text-lg font-bold text-red-600"
-        >
-          <LogOut className="size-5" /> Log out
-        </button>
+        <section className="mt-7 rounded-2xl border border-line bg-white p-6"><div className="flex items-center gap-3"><Heart className="size-6 fill-brand text-brand" /><div><h2 className="font-bold">Other account features</h2><p className="text-sm text-muted">Subscription, notification preferences, and privacy exports are not available in the current backend.</p></div></div></section>
+        <button type="button" onClick={() => { disablePatientDevice(); void logout().catch(() => undefined).finally(() => navigate("/")); }} className="mt-7 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-red-50 text-lg font-bold text-red-600"><LogOut className="size-5" /> Log out</button>
       </main>
       <CaregiverBottomNav activeOverride="Profile" />
     </motion.div>

@@ -13,7 +13,7 @@ class SignupRequest(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=320)
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(min_length=1, max_length=160)
-    account_type: Literal["caregiver", "patient"]
+    account_type: Literal["caregiver"]
 
 
 class LoginRequest(BaseModel):

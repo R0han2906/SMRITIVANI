@@ -1,6 +1,9 @@
 import { motion } from "framer-motion";
 import { Bell, Brain, CalendarDays, Heart, Home, Mic, User } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { getCurrentElderId, getElderlyProfiles, listElderResource } from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
   { label: "Home", icon: Home, path: "/caregiver" },
@@ -11,6 +14,24 @@ const navItems = [
 ];
 
 export function CaregiverTopNav() {
+  const { user } = useAuth();
+  const [openAlerts, setOpenAlerts] = useState(0);
+  const name = typeof user?.display_name === "string" ? user.display_name : "";
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "SV";
+
+  useEffect(() => {
+    let active = true;
+    getElderlyProfiles().then(({ items }) => {
+      const selectedId = getCurrentElderId();
+      const elder = items.find((item) => item.id === selectedId) ?? items[0];
+      if (!elder || typeof elder.id !== "string") return;
+      return listElderResource(elder.id, "alerts").then(({ items: alerts }) => {
+        if (active) setOpenAlerts(alerts.filter((alert) => alert.status === "open").length);
+      });
+    }).catch(() => { if (active) setOpenAlerts(0); });
+    return () => { active = false; };
+  }, []);
+
   return (
     <header className="fixed inset-x-0 top-0 z-50 h-16 border-b border-line bg-white/95 backdrop-blur-sm">
       <div className="mx-auto flex h-full max-w-[1100px] items-center justify-between px-4 sm:px-6">
@@ -27,16 +48,14 @@ export function CaregiverTopNav() {
             aria-label="Notifications"
           >
             <Bell className="size-6 text-muted" aria-hidden="true" />
-            <span className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
-              2
-            </span>
+            {openAlerts > 0 && <span className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">{openAlerts}</span>}
           </Link>
           <Link
             to="/caregiver/settings"
             className="flex size-10 items-center justify-center rounded-full bg-brand text-sm font-bold text-white"
             aria-label="Open profile"
           >
-            RS
+            {initials}
           </Link>
         </div>
       </div>

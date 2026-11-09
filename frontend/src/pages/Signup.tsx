@@ -17,6 +17,7 @@ import {
   User,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const fieldClass =
   "h-14 w-full rounded-xl border-2 border-line-strong bg-[#fffdf8] text-lg text-ink outline-none transition-all duration-200 placeholder:text-[#7b8a85] focus:border-brand focus:bg-white focus:ring-4 focus:ring-brand-soft";
@@ -67,6 +68,7 @@ function getPasswordStrength(password: string) {
 
 export default function Signup() {
   const navigate = useNavigate();
+  const { signup } = useAuth();
   const reduceMotion = useReducedMotion();
   const [formData, setFormData] = useState<FormData>({
     name: "",
@@ -79,6 +81,7 @@ export default function Signup() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const strength = useMemo(() => getPasswordStrength(formData.password), [formData.password]);
   const passwordsMismatch =
@@ -91,14 +94,20 @@ export default function Signup() {
     setErrors((current) => ({ ...current, [field]: "" }));
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!isComplete) {
       setErrors({ form: "Please complete every field before continuing." });
       return;
     }
-    console.log(formData);
-    navigate("/onboarding");
+    setIsSubmitting(true);
+    try {
+      const hasSession = await signup({ email: formData.email.trim(), password: formData.password, display_name: formData.name.trim(), account_type: "caregiver", phone: formData.phone.trim() });
+      if (hasSession) navigate("/onboarding");
+      else setErrors({ form: "Account created. Please confirm your email, then log in to continue." });
+    } catch (error) {
+      setErrors({ form: error instanceof Error ? error.message : "Could not create your account. Please try again." });
+    } finally { setIsSubmitting(false); }
   };
 
   const motionTransition = { duration: reduceMotion ? 0 : 0.45 };
@@ -204,7 +213,7 @@ export default function Signup() {
             transition={{ ...motionTransition, delay: reduceMotion ? 0 : 0.15 }}
             className="rounded-3xl border-2 border-line bg-white p-6 shadow-[8px_8px_0_#e6dece] sm:p-8 md:p-10"
           >
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Create your account</h2>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Create your caregiver account</h2>
             <p className="mt-3 text-lg leading-7 text-muted">
               Start with a free family account. It only takes a minute.
             </p>
@@ -435,12 +444,12 @@ export default function Signup() {
 
               <motion.button
                 type="submit"
-                disabled={!isComplete}
-                whileHover={isComplete && !reduceMotion ? { y: -1 } : undefined}
-                whileTap={isComplete ? { scale: 0.98 } : undefined}
+                disabled={!isComplete || isSubmitting}
+                whileHover={isComplete && !isSubmitting && !reduceMotion ? { y: -1 } : undefined}
+                whileTap={isComplete && !isSubmitting ? { scale: 0.98 } : undefined}
                 className="mt-8 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-brand px-5 text-lg font-bold text-white shadow-[0_4px_0_#a9432d] transition-transform disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none"
               >
-                Create account
+                  {isSubmitting ? "Creating account…" : "Create account"}
                 <ArrowRight className="size-5" aria-hidden="true" />
               </motion.button>
             </form>

@@ -1,0 +1,338 @@
+================================================================================
+                    SMRIVITANI TESTING - QUICK VISUAL GUIDE
+================================================================================
+
+STEP 0: OPEN 3 POWERSHELL WINDOWS
+================================================================================
+
+┌─────────────────────────┬─────────────────────────┬─────────────────────────┐
+│     Terminal 1          │     Terminal 2          │     Terminal 3          │
+│     BACKEND (8000)      │   CAREGIVER (8443)      │    ELDERLY (8444)       │
+├─────────────────────────┼─────────────────────────┼─────────────────────────┤
+│ cd backend              │ cd frontend             │ cd frontend             │
+│ python app.py           │ npm run dev             │ $env:VITE_PORT=8444    │
+│                         │                         │ npm run dev             │
+│ Running on:             │ Local: 8443             │ Local: 8444             │
+│ http://127.0.0.1:8000   │ ✅ Ready                │ ✅ Ready                │
+│ ✅ Ready                │                         │                         │
+└─────────────────────────┴─────────────────────────┴─────────────────────────┘
+
+
+STEP 1: CAREGIVER SIGNUP (Browser Tab 1: 8443)
+================================================================================
+
+Welcome Page
+    │
+    ├─ Click "Get started"
+    │
+    └─ Signup Form
+         │
+         ├─ Email:    caregiver@test.com
+         ├─ Password: Test123!@#
+         ├─ Name:     Ramesh Kumar
+         └─ Phone:    +919876543210
+              │
+              └─ Click "Create account"
+                   │
+                   └─ ✅ REDIRECTED TO ONBOARDING
+
+
+STEP 2: CREATE ELDERLY PROFILE
+================================================================================
+
+Onboarding Form
+    │
+    ├─ Elderly Name:    Meera Devi
+    ├─ Age:             75
+    ├─ Language:        Hindi
+    ├─ City:            Mumbai
+    ├─ Lives Alone:     ☐ (unchecked)
+    ├─ Doctor Name:     Dr. Patel
+    └─ Doctor Phone:    +919876543211
+         │
+         └─ Click "Create profile"
+              │
+              └─ ✅ REDIRECTED TO DASHBOARD
+
+
+STEP 3: ADD MEDICINES (Optional)
+================================================================================
+
+Dashboard → Click "💊 Log"
+    │
+    ├─ Medicine 1
+    │   ├─ Name:      Aspirin
+    │   ├─ Dosage:    75mg
+    │   ├─ Frequency: Once daily
+    │   └─ Time:      08:00 AM
+    │
+    ├─ Medicine 2
+    │   ├─ Name:      Metformin
+    │   ├─ Dosage:    500mg
+    │   ├─ Frequency: Twice daily
+    │   └─ Times:     08:00 AM, 08:00 PM
+    │
+    └─ Click "Save" for each
+
+
+STEP 4: GENERATE PAIRING CODE
+================================================================================
+
+Dashboard → Find "Pair your loved one's device"
+    │
+    ├─ Click "Create code"
+    │
+    └─ ✅ CODE APPEARS
+         │
+         └─ Example: AC7F9B (6 characters)
+              │
+              └─ ⚠️ COPY THIS CODE
+                   │
+                   └─ Code expires in 15 minutes
+
+
+STEP 5: ELDERLY PAIRING (Browser Tab 2: 8444)
+================================================================================
+
+Welcome Page
+    │
+    ├─ Click "Open patient mode"
+    │
+    └─ Code Entry Page
+         │
+         ├─ Paste code:  AC7F9B (from step 4)
+         │
+         └─ Click "Continue"
+              │
+              └─ ✅ DEVICE PAIRED (1-2 seconds)
+                   │
+                   └─ REDIRECTED TO CONVERSATION PAGE
+
+
+STEP 6: ELDERLY CONVERSATION INTERFACE
+================================================================================
+
+Elderly Home Page (localhost:8444/elderly)
+    │
+    ├─ 🎤 Microphone Button (center)
+    │   └─ Click to speak
+    │
+    ├─ Navigation Menu:
+    │   ├─ 🏠 Home
+    │   ├─ 💊 Medicines
+    │   ├─ 👨‍👩‍👧 Family
+    │   ├─ 📅 Events
+    │   ├─ 🎵 Bhajan
+    │   └─ 🚨 Emergency
+    │
+    └─ Conversation Display
+        └─ Show recent interactions
+
+
+STEP 7: VERIFY ON CAREGIVER TAB (Go Back to Tab 1: 8443)
+================================================================================
+
+Dashboard (Refresh page: Ctrl+R)
+    │
+    ├─ ✅ Device Status Changed
+    │   └─ "Device paired on [timestamp]"
+    │
+    ├─ ✅ Last Active Time Updated
+    │
+    └─ ✅ Conversation Count Incremented
+
+
+STEP 8: TEST ADDITIONAL FEATURES
+================================================================================
+
+Tab 1 (Caregiver):
+    ├─ Click "⚙️ Settings"
+    │  └─ Edit profile (optional)
+    │  └─ Generate replacement code (optional)
+    │
+    └─ Check conversation logs
+
+Tab 2 (Elderly):
+    ├─ Click "💊 Medicines"
+    │  └─ View medicines
+    │  └─ Mark as taken (optional)
+    │
+    ├─ Click "👨‍👩‍👧 Family"
+    │  └─ View contacts
+    │
+    └─ Try voice input (optional)
+       └─ Say: "नमस्ते" (Hello in Hindi)
+       └─ AI should respond
+
+
+STEP 9: TEST PAGE REFRESH (PERSISTENCE)
+================================================================================
+
+Tab 1 (Caregiver):
+    │
+    ├─ Press Ctrl+R
+    │
+    └─ ✅ Should stay logged in
+       └─ Should see dashboard
+
+
+Tab 2 (Elderly):
+    │
+    ├─ Press Ctrl+R
+    │
+    └─ ✅ Should stay on /elderly
+       └─ Should NOT go to code entry page
+
+
+STEP 10: LOGOUT TEST (Optional)
+================================================================================
+
+Tab 1 (Caregiver):
+    │
+    ├─ Click "⚙️ Settings"
+    ├─ Click "Log out"
+    │
+    └─ ✅ Redirected to /login
+
+Tab 2 (Elderly):
+    │
+    ├─ Refresh page (Ctrl+R)
+    │
+    └─ ✅ Back to Welcome page
+       └─ Device unpaired automatically
+
+
+TEST DATA QUICK REFERENCE
+================================================================================
+
+Caregiver Email:     caregiver@test.com
+Caregiver Password:  Test123!@#
+Caregiver Name:      Ramesh Kumar
+
+Elderly Name:        Meera Devi
+Elderly Age:         75
+Elderly Language:    Hindi
+Elderly City:        Mumbai
+Elderly Doctor:      Dr. Patel
+
+Medicine 1:          Aspirin 75mg (once daily @ 08:00 AM)
+Medicine 2:          Metformin 500mg (twice daily @ 08:00 AM, 20:00 PM)
+
+Contact 1:           Rajesh Kumar (Son) +919999888777
+Contact 2:           Neha Sharma (Daughter) +919888777666
+
+Voice Input:         "नमस्ते, मैं कैसे हूँ?" (Hello, how am I?)
+
+
+SUCCESS CHECKLIST
+================================================================================
+
+✅ Caregiver Tasks:
+   [ ] Signup successful
+   [ ] Profile created (Meera Devi)
+   [ ] Code generated
+   [ ] Device paired status visible
+   [ ] Logout works
+
+✅ Elderly Tasks:
+   [ ] Code entry successful
+   [ ] Device paired
+   [ ] Conversation page loads
+   [ ] Can view medicines
+   [ ] Can view contacts
+   [ ] Page refresh works
+   [ ] Navigation works
+
+✅ Integration:
+   [ ] Real-time sync between tabs
+   [ ] Data consistent
+   [ ] No errors
+   [ ] Performance acceptable (< 5 sec per action)
+
+
+TROUBLESHOOTING QUICK REFERENCE
+================================================================================
+
+Problem: Servers won't start
+Solution: Check Python/Node installed, check ports not in use
+
+Problem: Code entry fails
+Solution: Generate new code (old one expired after 15 min)
+
+Problem: Device doesn't pair
+Solution: Check backend logs, try with new code
+
+Problem: Page shows blank
+Solution: F12 → Console for errors, check JWT token exists
+
+Problem: Refresh redirects to pairing
+Solution: Device token lost, check localStorage
+
+Problem: No sync between tabs
+Solution: Check backend is running, check network errors
+
+
+EXPECTED TIMING
+================================================================================
+
+Startup (all 3 servers):    ~10 seconds
+Caregiver signup:           ~2 seconds
+Profile creation:           ~2 seconds
+Code generation:            ~1 second
+Code entry:                 ~2 seconds
+Page navigation:            ~500ms
+Page refresh (elderly):     ~1 second
+
+
+BROWSER CONSOLE DEBUGGING COMMANDS
+================================================================================
+
+Check if caregiver logged in:
+> localStorage.getItem('smritivani.access_token')
+  Should show: eyJ0eXAi... (JWT token)
+
+Check if elderly paired:
+> localStorage.getItem('smritivani.device_token')
+  Should show: device token string
+
+Clear everything (fresh start):
+> localStorage.clear(); sessionStorage.clear(); location.reload()
+
+View all storage:
+> Object.keys(localStorage).forEach(k => console.log(k, localStorage[k]))
+
+
+URLS REFERENCE
+================================================================================
+
+Backend API:     http://localhost:8000/api
+Caregiver Tab:   http://localhost:8443/
+Elderly Tab:     http://localhost:8444/
+
+Caregiver Routes:
+- /login             (login page)
+- /signup            (signup page)
+- /onboarding        (post-signup setup)
+- /caregiver         (dashboard)
+- /caregiver/settings (settings)
+
+Elderly Routes:
+- /elderly/pair      (code entry)
+- /elderly           (conversation)
+- /elderly/medicines (medicines)
+- /elderly/family    (contacts)
+
+
+NEXT STEPS
+================================================================================
+
+1. Read:     START_TESTING_NOW.md (quick start)
+2. Execute:  Run the 3 commands above
+3. Follow:   COMPLETE_TESTING_FLOW.md (step-by-step)
+4. Reference: TESTING_DATA_SHEET.md (data)
+5. Verify:   Check marks against checklist above
+6. Resolve:  Use PRODUCTION_ROUTING_CHECKLIST.md for issues
+
+Ready? Start with Terminal 1 and the commands above! 🚀
+
+================================================================================

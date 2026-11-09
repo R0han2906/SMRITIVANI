@@ -15,6 +15,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const steps = [
   {
@@ -46,7 +47,9 @@ const entrance = {
 
 export default function Welcome() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const reduceMotion = useReducedMotion();
+  const goToCaregiver = () => navigate(isAuthenticated ? "/caregiver" : "/signup");
 
   const transition = reduceMotion ? { duration: 0 } : { duration: 0.45, ease: "easeOut" as const };
 
@@ -142,7 +145,7 @@ export default function Welcome() {
               >
                 <button
                   type="button"
-                  onClick={() => navigate("/signup")}
+                  onClick={goToCaregiver}
                   className="inline-flex min-h-15 items-center justify-center gap-3 rounded-2xl bg-brand px-7 text-lg font-bold text-white shadow-[0_5px_0_#a9432d] transition-transform hover:-translate-y-0.5 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand active:translate-y-0 active:shadow-none"
                 >
                   Set up for my parent
@@ -331,7 +334,7 @@ export default function Welcome() {
             <div className="mt-12 grid gap-6 md:grid-cols-2">
               <button
                 type="button"
-                onClick={() => navigate("/signup")}
+                onClick={goToCaregiver}
                 className="group rounded-[1.75rem] border-2 border-line-strong bg-white p-7 text-left transition-colors hover:border-brand focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand sm:p-9"
               >
                 <span className="flex size-16 items-center justify-center rounded-2xl bg-brand-soft text-brand">
@@ -359,13 +362,13 @@ export default function Welcome() {
                   <Heart className="size-8 fill-current" aria-hidden="true" />
                 </span>
                 <span className="mt-7 block text-2xl font-bold text-ink">
-                  I’m using it for myself
+                  I’m the patient
                 </span>
                 <span className="mt-3 block text-lg leading-7 text-muted">
-                  I want a friendly voice to help with my day, medicines, and family connection.
+                  If your caregiver has set up this device, open SmritiVani and start using it without signing in.
                 </span>
                 <span className="mt-8 flex min-h-13 items-center justify-between rounded-xl bg-forest px-5 text-lg font-bold text-white">
-                  Start with voice
+                  Open patient mode
                   <ArrowRight
                     className="size-5 transition-transform group-hover:translate-x-1"
                     aria-hidden="true"

@@ -16,7 +16,8 @@ import {
   Shield,
   Smartphone,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const fieldClass =
   "h-14 w-full rounded-xl border-2 border-line-strong bg-[#fffdf8] text-lg text-ink outline-none transition-all duration-200 placeholder:text-[#7b8a85] focus:border-brand focus:bg-white focus:ring-4 focus:ring-brand-soft";
@@ -41,28 +42,39 @@ const stats = [
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { login, logout } = useAuth();
   const reduceMotion = useReducedMotion();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [loginError, setLoginError] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const canSubmit = formData.email.trim() !== "" && formData.password.trim() !== "";
   const motionTransition = { duration: reduceMotion ? 0 : 0.45 };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit) {
-      setLoginError(true);
+      setLoginError("Enter your email and password, then try again.");
       return;
     }
 
-    setLoginError(false);
+    setLoginError("");
     setIsSubmitting(true);
-    window.setTimeout(() => {
-      navigate("/onboarding");
-    }, 1500);
+    try {
+      const currentUser = await login({ email: formData.email.trim(), password: formData.password });
+      if (currentUser.account_type !== "caregiver") {
+        await logout();
+        setLoginError("SmritiVani sign-in is for caregivers. Ask your caregiver to finish setup on this device; after that, you can use it without signing in.");
+      } else {
+        const requestedPath = typeof location.state?.from?.pathname === "string" ? location.state.from.pathname : "/caregiver";
+        navigate(requestedPath.startsWith("/caregiver") || requestedPath === "/onboarding" ? requestedPath : "/caregiver");
+      }
+    }
+    catch (error) { setLoginError(error instanceof Error ? error.message : "Sign-in failed. Please try again."); }
+    finally { setIsSubmitting(false); }
   };
 
   return (
@@ -169,8 +181,8 @@ export default function Login() {
             transition={{ ...motionTransition, delay: reduceMotion ? 0 : 0.15 }}
             className="rounded-3xl border-2 border-line bg-white p-6 shadow-[8px_8px_0_#e6dece] sm:p-8 md:p-10"
           >
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Welcome back</h2>
-            <p className="mt-3 text-lg leading-7 text-muted">Log in to check on your loved one.</p>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Caregiver sign in</h2>
+            <p className="mt-3 text-lg leading-7 text-muted">Sign in to manage your loved one’s profile. The patient experience does not require sign-in after caregiver setup.</p>
 
             <div className="my-7 h-px bg-line" />
 
@@ -221,7 +233,7 @@ export default function Login() {
                       value={formData.email}
                       onChange={(event) => {
                         setFormData((current) => ({ ...current, email: event.target.value }));
-                        setLoginError(false);
+                        setLoginError("");
                       }}
                       placeholder="rahul@example.com"
                       className={`${fieldClass} pr-4 pl-12`}
@@ -238,7 +250,12 @@ export default function Login() {
                     <label htmlFor="login-password" className="text-base font-bold">
                       Password
                     </label>
-                    <button type="button" className="text-sm font-bold text-brand hover:underline">
+                    <button
+                      type="button"
+                      disabled
+                      title="Password recovery is not available yet"
+                      className="text-sm font-bold text-brand hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                    >
                       Forgot password?
                     </button>
                   </div>
@@ -254,7 +271,7 @@ export default function Login() {
                       value={formData.password}
                       onChange={(event) => {
                         setFormData((current) => ({ ...current, password: event.target.value }));
-                        setLoginError(false);
+                        setLoginError("");
                       }}
                       placeholder="Enter your password"
                       className={`${fieldClass} pr-12 pl-12`}
@@ -294,7 +311,7 @@ export default function Login() {
                       aria-hidden="true"
                     />
                     <p className="text-sm font-bold text-red-700">
-                      Enter your email and password, then try again.
+                      {loginError}
                     </p>
                   </motion.div>
                 )}

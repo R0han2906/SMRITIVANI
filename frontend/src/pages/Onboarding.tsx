@@ -11,7 +11,6 @@ import {
   Heart,
   Home,
   MapPin,
-  Mic,
   Minus,
   Pencil,
   Phone,
@@ -25,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { createElderlyProfile, createElderResource, saveCurrentElderId } from "../services/api";
 
 const languages = [
   "Hindi",
@@ -157,39 +157,26 @@ export default function Onboarding() {
   const [languageOpen, setLanguageOpen] = useState(false);
   const [showMedicineModal, setShowMedicineModal] = useState(false);
   const [showFamilyModal, setShowFamilyModal] = useState(false);
-  const [recording, setRecording] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [elderId, setElderId] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [savedRecords, setSavedRecords] = useState<string[]>([]);
 
   const [profile, setProfile] = useState({
-    name: "Ramesh Prasad Sharma",
-    age: 74,
-    gender: "Male",
+    name: "",
+    age: null as number | null,
+    gender: "",
     language: "Hindi",
-    city: "Lucknow",
+    city: "",
     livesAlone: true,
     livesWith: "",
-    doctorName: "Dr. Verma",
-    doctorPhone: "98765 43210",
-    hospital: "City Hospital, Lucknow",
+    doctorName: "",
+    doctorPhone: "",
+    hospital: "",
   });
-  const [medicines, setMedicines] = useState<Medicine[]>([
-    {
-      id: 1,
-      name: "Amlodipine",
-      dosage: "5mg",
-      time: "08:00",
-      frequency: "Daily",
-      instructions: "After breakfast",
-    },
-    {
-      id: 2,
-      name: "Metformin",
-      dosage: "500mg",
-      time: "21:00",
-      frequency: "Daily",
-      instructions: "After dinner",
-    },
-  ]);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [medicineDraft, setMedicineDraft] = useState({
     name: "",
     dosage: "",
@@ -197,40 +184,9 @@ export default function Onboarding() {
     frequency: "Daily",
     instructions: "",
   });
-  const [family, setFamily] = useState<FamilyMember[]>([
-    {
-      id: 1,
-      name: "Rahul",
-      relationship: "Son",
-      info: "Bengaluru, Software Engineer",
-      color: "#c9573b",
-      initials: "R",
-    },
-    {
-      id: 2,
-      name: "Priya",
-      relationship: "Daughter",
-      info: "Dubai, Doctor",
-      color: "#cc5e8f",
-      initials: "P",
-    },
-    {
-      id: 3,
-      name: "Rohan",
-      relationship: "Grandson",
-      info: "8 years, Class 3",
-      color: "#7562a8",
-      initials: "Ro",
-    },
-  ]);
+  const [family, setFamily] = useState<FamilyMember[]>([]);
   const [familyDraft, setFamilyDraft] = useState({ name: "", relationship: "Son", info: "" });
-  const [facts, setFacts] = useState<Fact[]>([
-    { id: 1, emoji: "🎵", text: "Loves bhajans" },
-    { id: 2, emoji: "🍚", text: "Favorite food: Kheer" },
-    { id: 3, emoji: "📍", text: "From Varanasi" },
-    { id: 4, emoji: "⚠️", text: "Allergic to penicillin" },
-    { id: 5, emoji: "☕", text: "Adrak chai every morning" },
-  ]);
+  const [facts, setFacts] = useState<Fact[]>([]);
   const [factDraft, setFactDraft] = useState("");
   const [factEmoji, setFactEmoji] = useState("💡");
 
@@ -283,9 +239,46 @@ export default function Onboarding() {
     setFactDraft("");
   };
 
-  const finish = () => {
-    setCelebrating(true);
-    window.setTimeout(() => navigate("/caregiver"), 1700);
+  const finish = async () => {
+    setSavingProfile(true);
+    setSaveError("");
+    try {
+      let id = elderId;
+      if (!id) {
+        const elder = await createElderlyProfile({
+          name: profile.name.trim(), age: profile.age,
+          language: profile.language.toLowerCase(), city: profile.city.trim() || null,
+          timezone: "Asia/Kolkata", lives_alone: profile.livesAlone,
+          doctor_name: profile.doctorName.trim() || null, doctor_phone: profile.doctorPhone.trim() || null,
+        });
+        if (typeof elder.id !== "string") throw new Error("The profile was created but the backend did not return its ID. Contact support before retrying.");
+        id = elder.id;
+        setElderId(id);
+      }
+      saveCurrentElderId(id);
+      const records: { key: string; resource: "medicines" | "memories"; data: Record<string, unknown> }[] = [];
+      if (profile.gender) records.push({ key: "profile:gender", resource: "memories", data: { type: "fact", name: "Gender", info: profile.gender } });
+      if (!profile.livesAlone && profile.livesWith.trim()) records.push({ key: "profile:lives-with", resource: "memories", data: { type: "fact", name: "Living arrangement", info: profile.livesWith.trim() } });
+      if (profile.hospital.trim()) records.push({ key: "profile:hospital", resource: "memories", data: { type: "fact", name: "Hospital or clinic", info: profile.hospital.trim() } });
+      family.forEach((person) => records.push({ key: `family:${person.id}`, resource: "memories", data: { type: "family", name: person.name, relationship: person.relationship, info: person.info } }));
+      facts.forEach((fact) => records.push({ key: `fact:${fact.id}`, resource: "memories", data: { type: "fact", name: `${fact.emoji} ${fact.text}` } }));
+      medicines.forEach((medicine) => records.push({ key: `medicine:${medicine.id}`, resource: "medicines", data: { name: medicine.name, dosage: medicine.dosage, schedule_time: medicine.time || null, days_of_week: [0, 1, 2, 3, 4, 5, 6], instructions: [
+        `Frequency: ${medicine.frequency}`,
+        medicine.instructions,
+      ].filter(Boolean).join(". ") } }));
+
+      const pending = records.filter((record) => !savedRecords.includes(record.key));
+      const results = await Promise.allSettled(pending.map((record) => createElderResource(id, record.resource, record.data)));
+      const completed = pending.filter((_, index) => results[index].status === "fulfilled").map((record) => record.key);
+      if (completed.length) setSavedRecords((current) => [...new Set([...current, ...completed])]);
+      const failedCount = results.filter((result) => result.status === "rejected").length;
+      if (failedCount) throw new Error(`The elder profile is saved, but ${failedCount} medicine or memory item${failedCount === 1 ? "" : "s"} could not be saved. Please retry; already-saved items will not be duplicated.`);
+
+      setProfileSaved(true);
+      setCelebrating(true);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Could not save the care profile. Please try again.");
+    } finally { setSavingProfile(false); }
   };
 
   const panelMotion = {
@@ -309,7 +302,8 @@ export default function Onboarding() {
             <span className="text-sm font-bold text-muted">Step {step} of 4</span>
             <button
               type="button"
-              onClick={() => navigate("/caregiver")}
+              onClick={() => { if (profileSaved) navigate("/caregiver"); else void finish(); }}
+              disabled={savingProfile || !profile.name.trim()}
               className="hidden text-sm font-bold text-muted hover:text-brand sm:block"
             >
               Save and exit
@@ -394,17 +388,17 @@ export default function Onboarding() {
                       <button
                         type="button"
                         onClick={() =>
-                          setProfile({ ...profile, age: Math.max(50, profile.age - 1) })
+                          setProfile({ ...profile, age: Math.max(50, (profile.age ?? 65) - 1) })
                         }
                         className="flex size-14 items-center justify-center rounded-xl bg-cream text-muted"
                       >
                         <Minus />
                       </button>
-                      <span className="w-20 text-center text-4xl font-bold">{profile.age}</span>
+                      <span className="w-20 text-center text-4xl font-bold">{profile.age ?? "—"}</span>
                       <button
                         type="button"
                         onClick={() =>
-                          setProfile({ ...profile, age: Math.min(110, profile.age + 1) })
+                          setProfile({ ...profile, age: Math.min(110, (profile.age ?? 64) + 1) })
                         }
                         className="flex size-14 items-center justify-center rounded-xl bg-brand-soft text-brand"
                       >
@@ -553,7 +547,7 @@ export default function Onboarding() {
               <div className="mt-10 flex justify-end">
                 <button
                   type="button"
-                  disabled={!profile.name || !profile.city || !profile.gender}
+                  disabled={!profile.name.trim() || !profile.city.trim() || (!profile.livesAlone && !profile.livesWith.trim())}
                   onClick={() => goToStep(2)}
                   className="flex h-14 items-center gap-2 rounded-xl bg-brand px-8 text-lg font-bold text-white shadow-[0_4px_0_#a9432d] disabled:opacity-45"
                 >
@@ -604,6 +598,9 @@ export default function Onboarding() {
                     <div className="flex gap-2">
                       <button
                         type="button"
+                        disabled
+                        title="Medicine editing is not available yet"
+                        aria-label={`Edit ${medicine.name} (coming soon)`}
                         className="flex size-10 items-center justify-center rounded-lg bg-white text-muted"
                       >
                         <Pencil className="size-4" />
@@ -789,7 +786,7 @@ export default function Onboarding() {
                 You’re all set! 🎉
               </h1>
               <p className="mt-3 text-lg leading-7 text-muted">
-                Here is the care profile you created for {profile.name.split(" ")[0]}.
+                {profileSaved ? `The care profile for ${profile.name.split(" ")[0]} is saved. Patient mode is ready on this device.` : `Review the care profile for ${profile.name.split(" ")[0]} before saving.`}
               </p>
 
               <div className="mt-8 flex flex-col gap-6">
@@ -797,14 +794,14 @@ export default function Onboarding() {
                   <h2 className="mb-3 text-xl font-bold">Parent profile</h2>
                   {[
                     ["Name", profile.name],
-                    ["Age", `${profile.age}`],
+                    ["Age", profile.age === null ? "Not provided" : `${profile.age}`],
                     ["Language", profile.language],
                     ["City", profile.city],
                     [
                       "Lives",
                       profile.livesAlone ? "Alone" : `With ${profile.livesWith || "family"}`,
                     ],
-                    ["Doctor", `${profile.doctorName}, ${profile.hospital}`],
+                    ["Doctor", [profile.doctorName, profile.doctorPhone, profile.hospital].filter(Boolean).join(" · ") || "Not provided"],
                   ].map(([label, value]) => (
                     <div
                       key={label}
@@ -869,14 +866,17 @@ export default function Onboarding() {
                 </div>
               </div>
 
+              {profileSaved && <div className="mt-6 rounded-2xl border-2 border-[#b9d5c1] bg-sage p-6" role="status"><h2 className="text-xl font-bold text-forest">Care profile is ready</h2><p className="mt-2 text-sm leading-6 text-muted">The profile for {profile.name} is saved. Open your caregiver dashboard to create a one-time code, then enter that code on their separate device.</p><button type="button" onClick={() => navigate("/caregiver")} className="mt-4 min-h-11 rounded-xl bg-forest px-4 font-bold text-white">Go to caregiver dashboard</button></div>}
+              {saveError && <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{saveError}</p>}
               <motion.button
                 type="button"
-                onClick={finish}
+                onClick={() => { if (profileSaved) navigate("/caregiver"); else void finish(); }}
+                disabled={savingProfile}
                 whileHover={reduceMotion ? undefined : { y: -2 }}
                 whileTap={{ scale: 0.98 }}
                 className="mt-10 flex h-16 w-full items-center justify-center gap-3 rounded-2xl bg-brand px-5 text-xl font-bold text-white shadow-[0_5px_0_#a9432d]"
               >
-                <Sparkles className="size-6" /> Start SmritiVani for {profile.name.split(" ")[0]}{" "}
+                {savingProfile ? "Saving care profile…" : profileSaved ? "Continue to caregiver dashboard" : "Save care profile"}{" "}<Sparkles className="size-6" />
                 <ArrowRight className="size-6" />
               </motion.button>
               <p className="mt-5 text-center text-sm text-muted">
@@ -978,10 +978,12 @@ export default function Onboarding() {
               </div>
               <button
                 type="button"
+                disabled
+                title="Photo upload is not available yet"
                 className="flex h-32 flex-col items-center justify-center rounded-xl border-2 border-dashed border-line-strong bg-cream text-muted"
               >
                 <Camera className="size-8" />
-                <span className="mt-2 text-sm font-bold">Tap to upload photo</span>
+                <span className="mt-2 text-sm font-bold">Photo upload coming soon</span>
                 <span className="text-xs">Optional</span>
               </button>
               <label>
@@ -993,33 +995,6 @@ export default function Onboarding() {
                   placeholder="Lives in Bengaluru, calls every evening"
                 />
               </label>
-              <div className="rounded-xl border border-line bg-cream p-4">
-                <p className="font-bold">Record 10 seconds of your voice</p>
-                <p className="mt-1 text-sm text-muted">
-                  This helps your parent recognize voice messages.
-                </p>
-                <div className="mt-3 flex items-center gap-3">
-                  <motion.button
-                    type="button"
-                    onClick={() => setRecording((value) => !value)}
-                    animate={
-                      recording
-                        ? {
-                            boxShadow: [
-                              "0 0 0 0 rgba(220,38,38,.3)",
-                              "0 0 0 12px rgba(220,38,38,0)",
-                            ],
-                          }
-                        : undefined
-                    }
-                    transition={{ repeat: Infinity, duration: 1.3 }}
-                    className="flex size-12 items-center justify-center rounded-full bg-red-500 text-white"
-                  >
-                    <Mic />
-                  </motion.button>
-                  {recording && <span className="font-bold text-red-600">00:05 recording</span>}
-                </div>
-              </div>
               <button
                 type="submit"
                 className="h-14 rounded-xl bg-[#7562a8] text-lg font-bold text-white"

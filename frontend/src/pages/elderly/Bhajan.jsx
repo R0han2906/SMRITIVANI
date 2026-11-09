@@ -1,207 +1,51 @@
-import { motion, useReducedMotion } from "framer-motion";
-import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Volume2 } from "lucide-react";
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { ArrowLeft, Mic, Music, Pause, Play } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { usePatientResources } from "../../hooks/usePatientResources";
+import useScreenVoiceRouter from "../../hooks/useScreenVoiceRouter";
+
+const HANUMAN_CHALISA_ID = "AETFvQonfV8";
 
 export default function Bhajan() {
   const navigate = useNavigate();
-  const reduceMotion = useReducedMotion();
-  const [isPlaying, setIsPlaying] = useState(true);
+  const location = useLocation();
+  const playerRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(location.state?.autoplay === true);
+  const { data, isLoading, error } = usePatientResources(["memories"]);
+  const { isFromVoice, voiceIntent, markVoiceHandled } = useScreenVoiceRouter();
+  const favorites = (data.memories ?? []).filter((item) => item.type === "preference" || item.type === "fact").filter((item) => /🎵|bhajan|music|song|prayer/i.test(String(item.name ?? ""))).map((item) => ({ id: String(item.id), name: String(item.name ?? "Favorite music").replace(/^🎵\s*/, ""), detail: String(item.info ?? "") }));
 
-  const bhajans = [
-    { id: 1, name: "Hanuman Chalisa", duration: "5:00", playing: true },
-    { id: 2, name: "Om Jai Jagdish Hare", duration: "4:30", playing: false },
-    { id: 3, name: "Gayatri Mantra", duration: "6:15", playing: false },
-    { id: 4, name: "Shiv Tandav Stotram", duration: "7:00", playing: false },
-    { id: 5, name: "Aarti Kunj Bihari Ki", duration: "5:45", playing: false },
-  ];
-
-  const glowVariants = {
-    animate: {
-      boxShadow: [
-        "0 0 20px 0 rgba(217, 119, 6, 0.3)",
-        "0 0 40px 0 rgba(217, 119, 6, 0.6)",
-        "0 0 20px 0 rgba(217, 119, 6, 0.3)",
-      ],
-      transition: { duration: 3, repeat: Infinity, repeatType: "loop" },
-    },
+  const pausePlayback = () => {
+    playerRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "pauseVideo", args: [] }), "https://www.youtube.com");
+    setIsPlaying(false);
   };
+  const startPlayback = () => setIsPlaying(true);
 
-  const mandalaVariants = {
-    animate: {
-      rotate: 360,
-      transition: { duration: 60, repeat: Infinity, repeatType: "loop", ease: "linear" },
-    },
-  };
+  useEffect(() => {
+    const onPause = () => pausePlayback();
+    window.addEventListener("smritivani:pause-bhajan", onPause);
+    return () => window.removeEventListener("smritivani:pause-bhajan", onPause);
+  }, []);
 
-  const bhajanVariants = {
-    hidden: { opacity: 0, y: reduceMotion ? 0 : 20 },
-    visible: (i) => ({
-      opacity: 1,
-      y: 0,
-      transition: { delay: reduceMotion ? 0 : 0.5 + i * 0.1, duration: 0.4 },
-    }),
-  };
+  useEffect(() => {
+    // If routed via voice bhajan intent, auto-play
+    if (isFromVoice && voiceIntent === "bhajan") {
+      startPlayback();
+      markVoiceHandled();
+    }
+  }, [isFromVoice, voiceIntent, markVoiceHandled]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="min-h-screen bg-gradient-to-b from-amber-100 via-orange-50 to-yellow-50 pb-20 text-ink"
-    >
-      {/* Header */}
-      <div className="flex items-center gap-4 border-b border-amber-200 bg-white/95 px-4 py-4 backdrop-blur-sm">
-        <button
-          onClick={() => navigate("/elderly")}
-          className="flex size-12 items-center justify-center rounded-xl bg-amber-100 text-amber-800 hover:bg-amber-200"
-        >
-          <ArrowLeft className="size-6" />
-        </button>
-        <div>
-          <h1 className="text-3xl font-black text-amber-900">भजन 🙏</h1>
-          <p className="text-sm text-amber-700">🕉️</p>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6">
-        {/* Now Playing Card */}
-        <motion.section
-          variants={glowVariants}
-          animate="animate"
-          className="mb-8 overflow-hidden rounded-3xl bg-gradient-to-br from-amber-200 to-orange-100 p-8 shadow-[6px_6px_0_#e6dece]"
-        >
-          {/* Mandala Background */}
-          <motion.div
-            variants={mandalaVariants}
-            animate="animate"
-            className="absolute inset-0 flex items-center justify-center opacity-10"
-          >
-            <div className="text-9xl">🪷</div>
-          </motion.div>
-
-          <div className="relative">
-            <h2 className="text-3xl font-black text-amber-900">Hanuman Chalisa</h2>
-            <p className="mt-1 text-xl text-amber-700">गुलशन कुमार</p>
-
-            {/* Progress Bar */}
-            <div className="mt-6 flex items-center gap-3">
-              <p className="text-sm text-amber-700">2:15</p>
-              <div className="flex-1 h-3 rounded-full bg-amber-300">
-                <motion.div
-                  initial={{ width: "0%" }}
-                  animate={{ width: "45%" }}
-                  className="h-full rounded-full bg-amber-700"
-                />
-              </div>
-              <p className="text-sm text-amber-700">5:00</p>
-            </div>
-
-            {/* Controls */}
-            <div className="mt-8 flex items-center justify-center gap-8">
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
-                className="text-amber-600 transition-all"
-              >
-                <SkipBack className="h-10 w-10" strokeWidth={2} />
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setIsPlaying(!isPlaying)}
-                className="flex h-24 w-24 items-center justify-center rounded-full bg-amber-700 text-white shadow-lg transition-all"
-              >
-                {isPlaying ? (
-                  <Pause className="h-12 w-12 fill-current" />
-                ) : (
-                  <Play className="h-12 w-12 fill-current" />
-                )}
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
-                className="text-amber-600 transition-all"
-              >
-                <SkipForward className="h-10 w-10" strokeWidth={2} />
-              </motion.button>
-            </div>
-
-            {/* Volume */}
-            <div className="mt-8 flex items-center gap-3">
-              <Volume2 className="h-6 w-6 shrink-0 text-amber-700" />
-              <div className="flex-1 h-3 rounded-full bg-amber-300">
-                <motion.div className="h-full w-2/3 rounded-full bg-amber-700" />
-              </div>
-            </div>
-          </div>
-        </motion.section>
-
-        {/* Bhajans List */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3, duration: 0.4 }}
-        >
-          <h2 className="mb-6 text-2xl font-bold text-amber-900">और भजन</h2>
-
-          <div className="flex flex-col gap-3">
-            {bhajans.map((bhajan, i) => (
-              <motion.article
-                key={bhajan.id}
-                custom={i}
-                variants={bhajanVariants}
-                initial="hidden"
-                animate="visible"
-                className={`flex items-center gap-5 rounded-2xl p-5 shadow-[4px_4px_0_#e6dece] transition-all ${
-                  bhajan.playing ? "bg-amber-200" : "bg-white/80"
-                }`}
-              >
-                <div
-                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${
-                    bhajan.playing ? "bg-amber-600 text-white" : "bg-amber-100 text-amber-700"
-                  } text-xl font-bold`}
-                >
-                  {i + 1}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <p
-                    className={`text-2xl font-bold ${
-                      bhajan.playing ? "text-amber-900" : "text-slate-800"
-                    }`}
-                  >
-                    {bhajan.name}
-                  </p>
-                  <p className="mt-1 text-lg text-slate-500">{bhajan.duration}</p>
-                </div>
-
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Play className={`h-8 w-8 ${
-                    bhajan.playing ? "fill-amber-600 text-amber-600" : "text-amber-500"
-                  }`} />
-                </motion.button>
-              </motion.article>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Voice Command */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8, duration: 0.4 }}
-          className="mt-8 text-center"
-        >
-          <p className="text-lg italic text-amber-700">
-            🎤 बोलिए <span className="font-bold">'अगला भजन'</span> या <span className="font-bold">'रुक जाओ'</span>
-          </p>
-        </motion.div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gradient-to-b from-amber-100 via-orange-50 to-yellow-50 pb-20 text-ink">
+      <header className="flex items-center gap-4 border-b border-amber-200 bg-white/95 px-4 py-4"><button type="button" onClick={() => navigate("/elderly")} aria-label="Back home" className="flex size-12 items-center justify-center rounded-xl bg-amber-100 text-amber-800"><ArrowLeft className="size-6" /></button><div className="min-w-0 flex-1"><h1 className="text-2xl font-black text-amber-900">My favorite music 🙏</h1><p className="text-sm text-amber-700">Listen to a devotional favorite</p></div><button type="button" onClick={() => navigate("/elderly/listening")} aria-label="Speak to SmritiVani" className="flex size-12 items-center justify-center rounded-xl bg-forest text-white"><Mic /></button></header>
+      <main className="mx-auto max-w-2xl px-4 py-7 sm:px-6">
+        {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-4 font-bold text-red-700">{error}</p>}
+        <section className="rounded-3xl bg-white p-6 shadow-[6px_6px_0_#e6dece]"><h2 className="flex items-center gap-2 text-2xl font-bold"><Music className="size-6 text-amber-700" />Hanuman Chalisa</h2><p className="mt-2 leading-6 text-muted">A devotional video from T-Series Bhakti Sagar. Playback uses YouTube.</p>
+          <div className="mt-5 overflow-hidden rounded-2xl bg-black"><div className="aspect-video">{isPlaying ? <iframe ref={playerRef} title="Hanuman Chalisa by T-Series Bhakti Sagar" src={`https://www.youtube-nocookie.com/embed/${HANUMAN_CHALISA_ID}?autoplay=1&enablejsapi=1&rel=0`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen className="h-full w-full" /> : <button type="button" onClick={startPlayback} aria-label="Play Hanuman Chalisa" className="flex h-full min-h-48 w-full flex-col items-center justify-center gap-3 bg-amber-900 text-white"><Play className="size-14 fill-current" /><span className="text-xl font-bold">Play Hanuman Chalisa</span></button>}</div></div>
+          <div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={isPlaying ? pausePlayback : startPlayback} className="flex min-h-12 items-center gap-2 rounded-xl bg-amber-100 px-5 font-bold text-amber-950">{isPlaying ? <Pause className="size-5" /> : <Play className="size-5" />}{isPlaying ? "Pause bhajan" : "Play bhajan"}</button><button type="button" onClick={() => navigate("/elderly/listening")} className="flex min-h-12 items-center gap-2 rounded-xl bg-sage px-5 font-bold text-forest"><Mic className="size-5" />Say “ruk jao” or ask for help</button></div>
+        </section>
+        <section className="mt-6 rounded-3xl bg-white p-6 shadow-[6px_6px_0_#e6dece]"><h2 className="text-xl font-bold">Saved music favorites</h2>{isLoading ? <p className="mt-4 text-muted">Loading your favorites…</p> : favorites.length ? <div className="mt-4 space-y-3">{favorites.map((favorite) => <article key={favorite.id} className="rounded-2xl bg-amber-50 p-4"><p className="font-bold text-amber-950">{favorite.name}</p>{favorite.detail && <p className="mt-1 leading-6 text-slate-600">{favorite.detail}</p>}</article>)}</div> : <p className="mt-4 rounded-xl border border-dashed border-line-strong p-5 text-muted">No other music preferences are saved yet. Your caregiver can add them to your care profile.</p>}</section>
       </main>
     </motion.div>
   );

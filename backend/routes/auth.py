@@ -33,9 +33,9 @@ async def signup(body: SignupRequest) -> dict:
 
 @router.post("/login", summary="Sign in")
 async def login(body: LoginRequest) -> dict:
-    """Exchange email/password for a Supabase access and refresh token."""
+    """Exchange caregiver email/password for a Supabase access and refresh token."""
     try:
-        return await request_json(
+        result = await request_json(
             "POST",
             "/auth/v1/token?grant_type=password",
             payload={"email": body.email.strip(), "password": body.password},
@@ -44,6 +44,11 @@ async def login(body: LoginRequest) -> dict:
         if exc.status_code == 422:
             raise HTTPException(status_code=401, detail="Sign-in failed. Check your email and password, create an account with /api/auth/signup if you have not registered, and confirm your email if required.") from exc
         raise
+    user = result.get("user") if isinstance(result, dict) else None
+    metadata = user.get("user_metadata") if isinstance(user, dict) else None
+    if not isinstance(metadata, dict) or metadata.get("account_type") != "caregiver":
+        raise HTTPException(status_code=403, detail="Only caregiver accounts can sign in. Patients use the device set up by their caregiver.")
+    return result
 
 
 @router.post("/refresh", summary="Refresh a Supabase session")

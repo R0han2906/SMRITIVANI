@@ -14,15 +14,14 @@ SmritiVani is a voice-first companion for older adults in India, with patient an
 
 ## Account and access rules
 
-- Caregivers and patients have separate Supabase Auth accounts. Signup accepts `account_type` of `caregiver` or `patient`.
-- A caregiver creates the care profile. The database assigns the creator the initial `admin` membership.
-- A caregiver issues a random, one-time, 24-hour claim code. The patient signs in with their own patient account and redeems the code to link that account to the care profile.
-- The raw code is returned once, must not be logged or persisted, and may be encoded by the client into a QR. The database stores only its SHA-256 digest. Reissuing replaces an unused code.
-- A patient account may claim one profile. Claiming and creating patient membership happen atomically in a restricted PostgreSQL function.
-- Never use a claim code as a password or permanent login credential. Never create a patient's password from a caregiver account.
+- Signup and login are caregiver-only. The elderly person does not use an email/password account or caregiver JWT.
+- The caregiver creates the care profile. The database assigns the creator the initial `admin` membership.
+- The caregiver issues a short-lived, one-time numeric pairing code. A separate elderly device exchanges that code for an opaque device token and stores the token locally. Never use a pairing code as a password or permanent credential.
+- Raw pairing codes and device tokens must not be logged or persisted. Store only a keyed digest of short pairing codes and a SHA-256 digest of random device tokens.
+- Legacy patient-account claim RPCs/migrations may remain in existing Supabase data, but the current product flow does not ask patients to sign up or log in.
 - Caregiver access to additional profiles must use active membership records; a contact or relative listed in `contacts` does not receive login access.
-- Do not trust user IDs, account types, roles, creator IDs, or audit fields from request bodies. Derive the actor from the validated Supabase bearer token.
-- Use the caller's access token for user-scoped Auth/PostgREST operations so database row-level security applies to that caller. Do not use a service-role key for ordinary user requests.
+- Do not trust user IDs, roles, creator IDs, or audit fields from request bodies. Derive the caregiver actor from the validated Supabase bearer token; derive the elderly profile from the validated paired-device token.
+- Use the caller's access token for user-scoped Auth/PostgREST operations so database row-level security applies to that caller. For direct database operations, set transaction-local verified auth claims and explicitly check elder membership. Never accept a user ID without first validating its JWT.
 
 ## Data and media rules
 

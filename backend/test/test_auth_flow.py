@@ -1,4 +1,4 @@
-"""Focused Pydantic and route-payload tests for the two-account link flow."""
+"""Focused Pydantic and route-payload tests for caregiver-only sign-in."""
 
 from __future__ import annotations
 
@@ -19,22 +19,21 @@ from backend.utils.claim_codes import generate_claim_code, hash_claim_code, norm
 
 
 class AuthPayloadTests(unittest.TestCase):
-    def test_caregiver_and_patient_are_separate_signup_types(self):
+    def test_signup_only_allows_caregiver_accounts(self):
         caregiver = SignupRequest(
             email="caregiver@example.com",
             password="CaregiverPass123!",
             display_name="Caregiver",
             account_type="caregiver",
         )
-        patient = SignupRequest(
-            email="patient@example.com",
-            password="PatientPass123!",
-            display_name="Patient",
-            account_type="patient",
-        )
-
         self.assertEqual(caregiver.account_type, "caregiver")
-        self.assertEqual(patient.account_type, "patient")
+        with self.assertRaises(ValidationError):
+            SignupRequest(
+                email="patient@example.com",
+                password="PatientPass123!",
+                display_name="Patient",
+                account_type="patient",
+            )
 
     def test_signup_rejects_missing_or_privileged_account_type(self):
         with self.assertRaises(ValidationError):
@@ -59,16 +58,16 @@ class AuthPayloadTests(unittest.TestCase):
 
 
 class AuthRoutePayloadTests(unittest.TestCase):
-    def test_signup_maps_account_type_to_supabase_auth_metadata(self):
+    def test_signup_maps_caregiver_type_to_supabase_auth_metadata(self):
         body = SignupRequest(
-            email="patient@example.com",
-            password="PatientPass123!",
-            display_name="Patient",
-            account_type="patient",
+            email="caregiver@example.com",
+            password="CaregiverPass123!",
+            display_name="Caregiver",
+            account_type="caregiver",
         )
         payload = auth.signup_payload(body)
-        self.assertEqual(payload["data"]["account_type"], "patient")
-        self.assertEqual(payload["email"], "patient@example.com")
+        self.assertEqual(payload["data"]["account_type"], "caregiver")
+        self.assertEqual(payload["email"], "caregiver@example.com")
 
     def test_claim_code_request_normalizes_grouping_and_case(self):
         normalized = "ABCDEFGHJKMNPQRSTVWXYZ2345"

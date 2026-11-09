@@ -1,219 +1,65 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import {
-  Mic,
-  Pill,
-  Calendar,
-  Users,
-  Music,
-  Moon,
-  AlertTriangle,
-  Heart,
-  Bell,
-} from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Bell, Calendar, Heart, Mic, Music, Pill, Users } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { usePatientResources } from "../../hooks/usePatientResources";
+import useVoiceChat from "../../hooks/useVoiceChat";
+
+function localDayKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+function isToday(value, today) { const date = new Date(String(value)); return !Number.isNaN(date.getTime()) && localDayKey(date) === today; }
 
 export default function ElderlyHome() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
-  const [greeting, setGreeting] = useState("नमस्ते माँ! 🙏");
-
-      {useEffect(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) {
-      setGreeting("Good morning! 🌅");
-    } else if (hour < 17) {
-      setGreeting("Hello there! 👋");
-    } else {
-      setGreeting("Good evening! 🌆");
-    }
-  }, []);
-
-  const quickActions = [
-    { icon: Pill, label: "Medicine", path: "/elderly/medicine", color: "bg-brand" },
-    { icon: Calendar, label: "Events", path: "/elderly/events", color: "bg-forest" },
-    { icon: Users, label: "Family", path: "/elderly/family", color: "bg-[#7562a8]" },
-    { icon: Music, label: "Activities", path: "/elderly/activities", color: "bg-[#cc5e8f]" },
-    { icon: Moon, label: "Recap", path: "/elderly/recap", color: "bg-[#a94f79]" },
-    { icon: AlertTriangle, label: "Help", path: "/elderly/emergency", color: "bg-red-600" },
+  const voiceChat = useVoiceChat("hi-IN");
+  const [showVoiceError, setShowVoiceError] = useState(false);
+  const { elder, data, isLoading, error } = usePatientResources(["medicines", "medicine-logs", "events", "daily-logs", "alerts"]);
+  const today = localDayKey(new Date());
+  const firstName = typeof elder?.name === "string" ? elder.name.trim().split(/\s+/)[0] : "there";
+  const initials = typeof elder?.name === "string" ? elder.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() : "♥";
+  const morning = new Date().getHours() < 12;
+  const hindiGreeting = `Namaste ${firstName} ji, aaj ka din kaisa hai?`;
+  const greeting = typeof elder?.language === "string" && elder.language.toLowerCase() === "hindi" ? hindiGreeting : `${morning ? "Good morning" : new Date().getHours() < 17 ? "Good afternoon" : "Good evening"}, ${firstName}! ${morning ? "🌅" : "🙏"}`;
+  const medicines = (data.medicines ?? []).filter((medicine) => medicine.active !== false);
+  const doses = (data["medicine-logs"] ?? []).filter((log) => isToday(log.scheduled_for, today));
+  const events = (data.events ?? []).filter((event) => typeof event.starts_at === "string" && isToday(event.starts_at, today) && event.status !== "cancelled");
+  const latestLog = useMemo(() => (data["daily-logs"] ?? []).slice().sort((a, b) => String(b.log_date ?? "").localeCompare(String(a.log_date ?? "")))[0], [data["daily-logs"]]);
+  const openAlerts = (data.alerts ?? []).filter((alert) => ["open", "acknowledged"].includes(String(alert.status))).length;
+  const actions = [
+    { icon: Pill, label: "Dawai", path: "/elderly/medicine", color: "bg-brand" },
+    { icon: Users, label: "Parivaar", path: "/elderly/family", color: "bg-forest" },
+    { icon: Music, label: "Bhajan", path: "/elderly/bhajan", color: "bg-[#7562a8]" },
   ];
 
-  const pulseVariants = {
-    animate: {
-      boxShadow: [
-        "0 0 0 0 rgba(201, 87, 59, 0.6)",
-        "0 0 0 25px rgba(201, 87, 59, 0)",
-      ],
-      transition: { duration: 2, repeat: Infinity, repeatType: "loop" },
-    },
-  };
-
-  const floatVariants = {
-    animate: {
-      y: reduceMotion ? 0 : [0, -8, 0],
-      transition: { duration: 3, repeat: Infinity, repeatType: "loop", ease: "easeInOut" },
-    },
-  };
-
-  const gridButtonVariants = {
-    hidden: { opacity: 0, y: reduceMotion ? 0 : 16 },
-    visible: (i) => ({
-      opacity: 1,
-      y: 0,
-      transition: { delay: reduceMotion ? 0 : i * 0.08, duration: reduceMotion ? 0 : 0.4 },
-    }),
-  };
+  useEffect(() => {
+    if (!elder?.name || sessionStorage.getItem("smritivani.greeting_played")) return;
+    sessionStorage.setItem("smritivani.greeting_played", "true");
+    if ("speechSynthesis" in window) {
+      const utterance = new SpeechSynthesisUtterance(greeting);
+      utterance.lang = typeof elder.language === "string" && elder.language.toLowerCase() === "hindi" ? "hi-IN" : "en-IN";
+      utterance.rate = 0.88;
+      window.speechSynthesis.speak(utterance);
+    }
+    let timer;
+    void navigator.permissions?.query({ name: "microphone" }).then((permission) => {
+      if (permission.state === "granted") timer = window.setTimeout(() => navigate("/elderly/listening", { state: { autoStart: true } }), 3500);
+    }).catch(() => {});
+    return () => { if (timer) window.clearTimeout(timer); };
+  }, [elder?.name, elder?.language, greeting, navigate]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="min-h-screen bg-cream pb-24 text-ink"
-    >
-      {/* Header */}
-      <header className="fixed inset-x-0 top-0 z-50 h-16 border-b border-line bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-full max-w-[1100px] items-center justify-between px-4 sm:px-6">
-          <Link to="/" className="flex items-center gap-2.5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-brand text-white">
-              <Heart className="size-5 fill-current" aria-hidden="true" />
-            </span>
-            <span className="text-xl font-bold">SmritiVani</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              className="relative flex size-10 items-center justify-center rounded-xl hover:bg-cream"
-            >
-              <Bell className="size-6 text-muted" aria-hidden="true" />
-            </button>
-            <span className="flex size-10 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">
-              यु
-            </span>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-cream pb-24 text-ink">
+      <header className="fixed inset-x-0 top-0 z-50 h-16 border-b border-line bg-white/95 backdrop-blur-sm"><div className="mx-auto flex h-full max-w-[1100px] items-center justify-between px-4 sm:px-6"><div className="flex items-center gap-2.5"><span className="flex size-9 items-center justify-center rounded-xl bg-brand text-white"><Heart className="size-5 fill-current" /></span><span className="text-xl font-bold">SmritiVani</span></div><div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-full bg-brand text-sm font-bold text-white" aria-label={`${firstName}'s profile`}>{initials}</span></div></div></header>
       <main className="mx-auto max-w-2xl px-4 pt-20 sm:px-6">
-        {/* Greeting Card */}
-        <motion.section
-          initial={{ opacity: 0, y: reduceMotion ? 0 : 20, scale: reduceMotion ? 1 : 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: reduceMotion ? 0 : 0.4 }}
-          className="rounded-3xl border-2 border-line bg-white p-6 shadow-[6px_6px_0_#e6dece] sm:p-8"
-        >
-          <div className="text-center">
-            <h1 className="text-4xl font-bold">{greeting}</h1>
-            <p className="mt-3 text-lg text-muted">Wishing you a great day</p>
-          </div>
-        </motion.section>
-
-        {/* Mic Button Section */}
-        <motion.section className="mt-8 flex flex-col items-center">
-          <motion.div variants={pulseVariants} animate="animate" className="relative">
-            <motion.button
-              variants={floatVariants}
-              animate="animate"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => navigate("/elderly/listening")}
-              className="relative flex h-40 w-40 items-center justify-center rounded-full bg-brand text-white shadow-[8px_8px_0_#e6dece] transition-all"
-            >
-              <Mic className="h-20 w-20" strokeWidth={1.5} />
-            </motion.button>
-          </motion.div>
-
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3, duration: 0.6 }}
-            className="mt-6 text-center text-xl font-bold text-brand"
-          >
-            Tell me, I'm listening
-          </motion.p>
-        </motion.section>
-
-        {/* Quick Actions Header */}
-        <motion.div
-          initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4, duration: 0.4 }}
-          className="mt-12 mb-6"
-        >
-          <h2 className="flex items-center gap-2 text-2xl font-bold">
-            <span className="text-2xl">✨</span> Quick Access
-          </h2>
-          <p className="mt-2 text-base text-muted">Easy access to what you need</p>
-        </motion.div>
-
-        {/* Quick Action Grid */}
-        <motion.section className="grid grid-cols-3 gap-3 mb-8">
-          {quickActions.map((action, i) => {
-            const Icon = action.icon;
-            return (
-              <motion.button
-                key={action.label}
-                custom={i}
-                variants={gridButtonVariants}
-                initial="hidden"
-                animate="visible"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => navigate(action.path)}
-                className={`flex flex-col items-center justify-center gap-3 rounded-2xl ${action.color} px-3 py-6 text-white shadow-[4px_4px_0_#e6dece] transition-all`}
-              >
-                <Icon className="h-8 w-8" strokeWidth={1.5} />
-                <p className="text-center text-xs font-bold">{action.label}</p>
-              </motion.button>
-            );
-          })}
-        </motion.section>
-
-        {/* Status Card */}
-        <motion.section
-          initial={{ opacity: 0, y: reduceMotion ? 0 : 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7, duration: 0.4 }}
-          className="rounded-3xl border-2 border-line bg-white p-6 shadow-[6px_6px_0_#e6dece] sm:p-8"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold tracking-wider text-muted uppercase">Your Status</p>
-              <p className="mt-2 text-2xl font-bold">All Good ✓</p>
-              <p className="mt-1 text-sm text-muted">You're taking your medicines on time</p>
-            </div>
-            <span className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-[#edf7ef] text-2xl">
-              😊
-            </span>
-          </div>
-        </motion.section>
-
-        {/* Help Section */}
-        <motion.section
-          initial={{ opacity: 0, y: reduceMotion ? 0 : 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.85, duration: 0.4 }}
-          className="mt-8 rounded-2xl border border-line-strong bg-brand-soft p-5"
-        >
-          <p className="text-sm leading-6 text-brand">
-            <span className="font-bold">💡 Help:</span> Press "Help" if you need anything or want to talk. We're here for you.
-          </p>
-        </motion.section>
+        {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
+        <section className="rounded-3xl border-2 border-line bg-white p-6 text-center shadow-[6px_6px_0_#e6dece] sm:p-8"><h1 className="text-3xl font-bold sm:text-4xl">{isLoading ? "Welcome to SmritiVani 🙏" : greeting}</h1><p className="mt-3 text-lg text-muted">A calm place for your daily care and family connection.</p>{typeof elder?.language === "string" && <p className="mt-2 text-sm text-muted">Care language: {elder.language}</p>}</section>
+        <section className="mt-8 flex flex-col items-center"><motion.button type="button" whileHover={reduceMotion ? undefined : { scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={() => { voiceChat.start(); setShowVoiceError(false); }} disabled={voiceChat.state === "recording" || voiceChat.state === "processing" || voiceChat.state === "speaking"} aria-label="Start voice help" className="flex size-48 items-center justify-center rounded-full bg-brand text-white shadow-[8px_8px_0_#e6dece] disabled:opacity-50"><Mic className="size-20" strokeWidth={1.5} /></motion.button><p className="mt-5 text-center text-2xl font-bold text-brand">Boliye, main sun rahi hoon</p><p className="mt-1 text-center text-base text-muted">Tap the microphone and speak naturally.</p>{voiceChat.state === "recording" && <p className="mt-3 text-sm text-brand font-semibold">Listening...</p>}{voiceChat.state === "processing" && <p className="mt-3 text-sm text-brand font-semibold">Processing your request...</p>}{voiceChat.state === "speaking" && <p className="mt-3 text-sm text-brand font-semibold">Playing response...</p>}{voiceChat.error && <p className="mt-3 max-w-sm rounded-lg bg-red-50 p-3 text-sm text-red-700">{voiceChat.error}</p>}</section>
+        <section className="mt-10"><div className="mb-4 flex items-end justify-between"><div><h2 className="text-2xl font-bold">Today at a glance</h2><p className="mt-1 text-sm text-muted">From your saved care profile</p></div>{isLoading && <span className="text-sm text-muted">Loading…</span>}</div><div className="grid grid-cols-3 gap-3">{[{ icon: Pill, value: doses.filter((dose) => dose.status === "taken").length + `/${medicines.length}`, label: "Doses recorded", path: "/elderly/medicine", color: "bg-sage text-forest" }, { icon: Calendar, value: events.length, label: "Events today", path: "/elderly/events", color: "bg-brand-soft text-brand" }, { icon: Bell, value: openAlerts, label: "Open alerts", path: "/elderly/emergency", color: "bg-red-50 text-red-700" }].map(({ icon: Icon, value, label, path, color }) => <button key={label} type="button" onClick={() => navigate(path)} className={`rounded-2xl p-3 text-center ${color}`}><Icon className="mx-auto size-5" /><p className="mt-2 text-xl font-bold">{String(value)}</p><p className="text-xs font-bold">{label}</p></button>)}</div>{latestLog && typeof latestLog.summary === "string" && <p className="mt-3 rounded-xl bg-white p-4 text-sm leading-6 text-muted">{latestLog.summary}</p>}</section>
+        <section className="mt-10"><h2 className="mb-4 flex items-center gap-2 text-2xl font-bold"><span>✨</span> Quick access</h2><div className="grid grid-cols-3 gap-3">{actions.map(({ icon: Icon, label, path, color }) => <button key={label} type="button" onClick={() => navigate(path)} className={`flex min-h-28 flex-col items-center justify-center gap-2 rounded-2xl ${color} px-2 py-4 text-white shadow-[4px_4px_0_#e6dece]`}><Icon className="size-7" strokeWidth={1.7} /><span className="text-lg font-bold">{label}</span></button>)}</div></section>
+        <section className="mt-8 rounded-3xl border-2 border-line bg-white p-5"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-muted">Latest saved mood</p><p className="mt-2 text-2xl font-bold capitalize">{latestLog?.mood ? String(latestLog.mood) : "No mood recorded yet"}</p><p className="mt-1 text-sm text-muted">{latestLog ? (latestLog.summary ? String(latestLog.summary) : `Recorded ${String(latestLog.log_date ?? "")}`) : "Your care summary will appear after it is recorded."}</p></div><span className="text-3xl">{latestLog?.mood === "happy" ? "😊" : latestLog?.mood === "calm" ? "😌" : "📝"}</span></div></section>
+        <section className="mt-7 rounded-2xl border border-line-strong bg-brand-soft p-5"><p className="text-sm leading-6 text-brand"><span className="font-bold">💡 Need help?</span> Open Help to call a saved contact or record an SOS alert for your caregiver.</p></section>
       </main>
-
-      {/* Footer text */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1, duration: 0.6 }}
-        className="py-6 text-center"
-      >
-        <p className="text-sm text-muted">SmritiVani — Your Companion</p>
-      </motion.div>
+      <footer className="py-6 text-center"><p className="text-sm text-muted">SmritiVani · Your saved care information</p><button type="button" onClick={() => navigate("/elderly/emergency")} className="mt-3 text-sm font-bold text-red-700 underline">Need urgent help?</button></footer>
     </motion.div>
   );
-}
-
-
-
 }

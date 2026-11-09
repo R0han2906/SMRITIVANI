@@ -12,6 +12,11 @@ secrets/
 *.secret
 *.credentials
 
+# Documentation with potential secrets
+docs/API_KEYS_*.md
+!docs/API_KEYS_REQUIRED.md
+SYSTEM_READY.md
+
 # Virtual environments and Python caches
 .venv/
 venv/

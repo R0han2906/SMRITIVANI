@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,9 +23,11 @@ from backend.routes.auth import router as auth_router
 from backend.routes.access import router as access_router
 from backend.routes.resources import router as resources_router
 from backend.routes.users import router as users_router
+from backend.routes.pairing import caregiver_voice_router, router as pairing_router, voice_router
 from backend.services.database import close_database_pool, open_database_pool
 
 load_dotenv(Path(__file__).with_name(".env"))
+logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
 
 
 @asynccontextmanager
@@ -48,6 +51,9 @@ app.include_router(auth_router, prefix=os.getenv("API_PREFIX", "/api"))
 app.include_router(access_router, prefix=os.getenv("API_PREFIX", "/api"))
 app.include_router(users_router, prefix=os.getenv("API_PREFIX", "/api"))
 app.include_router(resources_router, prefix=os.getenv("API_PREFIX", "/api"))
+app.include_router(pairing_router, prefix=os.getenv("API_PREFIX", "/api"))
+app.include_router(voice_router, prefix=os.getenv("API_PREFIX", "/api"))
+app.include_router(caregiver_voice_router, prefix=os.getenv("API_PREFIX", "/api"))
 
 
 if __name__ == "__main__":

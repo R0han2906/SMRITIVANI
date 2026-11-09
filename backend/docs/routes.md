@@ -1,5 +1,7 @@
 # Frontend API Routes
 
+> **Pairing and voice additions:** see [API_REFERENCE.md](../../docs/API_REFERENCE.md) for the added contracts. They depend on the proposed `0004_device_pairing_voice.sql` migration and are not ready against a database until the project owner reviews and applies it.
+
 This document describes the routes currently mounted by the FastAPI app. Unless configured otherwise, the base URL is `http://127.0.0.1:8020` and the API prefix is `/api`.
 
 ## Authentication and request conventions
@@ -17,7 +19,7 @@ This document describes the routes currently mounted by the FastAPI app. Unless 
 
 No bearer token required. Returns `{ "status": "ok", "database": "connected" }` when the PostgreSQL pool is available. Returns 503 when the pool is unavailable. This does not verify Supabase Auth configuration or migration completeness.
 
-### `POST /api/auth/signup` — create a caregiver or patient account
+### `POST /api/auth/signup` — create a caregiver account
 
 No bearer token required. The email is checked for a basic email shape, not verified by this API. Supabase project settings may require email confirmation; in that case signup can return a user without a session.
 
@@ -32,11 +34,11 @@ Request:
 }
 ```
 
-`account_type` is `caregiver` or `patient`. Returns Supabase's signup response (201).
+`account_type` must be `caregiver`. Returns Supabase's signup response (201).
 
 ### `POST /api/auth/login` — sign in
 
-Request: `{ "email": "caregiver@example.com", "password": "..." }`. Returns Supabase's session response, including `access_token`, `refresh_token`, `token_type`, expiry information, and user (200). A failed login is returned as 401.
+Request: `{ "email": "caregiver@example.com", "password": "..." }`. Caregiver accounts receive Supabase's session response, including `access_token`, `refresh_token`, `token_type`, expiry information, and user (200). Invalid credentials return 401; a non-caregiver account is rejected with 403.
 
 ### `POST /api/auth/refresh` — refresh a session
 
@@ -63,6 +65,8 @@ Requires bearer token. Send one or more fields; empty object is rejected.
 Allowed fields: `display_name`, `phone`, `city`. Returns the updated profile.
 
 ## Elder profiles and patient linking
+
+The current frontend uses device-local patient mode instead of patient-account claiming. A caregiver completes profile setup on the device the patient will use; later launches open the patient interface without patient sign-in. The caregiver session remains active in the background for RLS-protected data access. Explicit caregiver sign-out disables patient mode. Claim-code routes below remain available as legacy backend endpoints and are not used by the frontend.
 
 ### `GET /api/elders`
 

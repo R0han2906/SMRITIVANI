@@ -1,742 +1,111 @@
-import { FormEvent, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import {
-  Bell,
-  BookOpen,
-  Brain,
-  CalendarDays,
-  Camera,
-  Heart,
-  Home,
-  Lightbulb,
-  MapPin,
-  MessageSquare,
-  Mic,
-  Pencil,
-  Phone,
-  Play,
-  Plus,
-  Save,
-  Sparkles,
-  Trash2,
-  User,
-  Users,
-  X,
-} from "lucide-react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { BookOpen, Brain, CalendarDays, Heart, Home, Lightbulb, Mic, Pencil, Phone, Plus, Trash2, User, Users, X } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { CaregiverBottomNav } from "../../components/layout/CaregiverChrome";
+import { useElderResource } from "../../hooks/useElderResource";
+import { getCaregiverVoiceInteractions } from "../../services/api";
 
 type Tab = "family" | "facts" | "stories";
-type FamilyMember = {
-  id: number;
-  name: string;
-  relationship: string;
-  info: string;
-  city: string;
-  phone?: string;
-  lastTalked: string;
-  initials: string;
-  color: string;
-  birthday?: string;
-};
-type Fact = {
-  id: number;
-  emoji: string;
-  category: string;
-  text: string;
-  source: string;
-  color: string;
-  important?: boolean;
-};
+const relationships = ["Son", "Daughter", "Grandson", "Granddaughter", "Spouse", "Brother", "Sister", "Neighbor", "Other"];
+const categories = [{ emoji: "🎵", label: "Music" }, { emoji: "🍚", label: "Food" }, { emoji: "📍", label: "Places" }, { emoji: "⚠️", label: "Health" }, { emoji: "☕", label: "Habits" }, { emoji: "💡", label: "Personal" }, { emoji: "📖", label: "Story" }];
+const colors: Record<string, string> = { "🎵": "bg-[#eee9fa] text-[#7562a8]", "🍚": "bg-brand-soft text-brand", "📍": "bg-sage text-forest", "⚠️": "bg-red-50 text-red-700", "☕": "bg-amber-50 text-amber-700", "📖": "bg-pink-50 text-[#a94f79]", "💡": "bg-sage text-forest" };
+const inputClass = "h-12 w-full rounded-xl border-2 border-line-strong bg-cream px-4 text-base outline-none focus:border-forest";
 
-const tabs = [
-  { id: "family" as const, label: "Family", icon: Users },
-  { id: "facts" as const, label: "Facts", icon: Lightbulb },
-  { id: "stories" as const, label: "Stories", icon: BookOpen },
-];
-const relationships = [
-  "Son",
-  "Daughter",
-  "Grandson",
-  "Granddaughter",
-  "Spouse",
-  "Brother",
-  "Sister",
-  "Neighbor",
-  "Other",
-];
-const categoryEmojis = ["🎵", "🍚", "📍", "⚠️", "☕", "📖", "💡", "❤️"];
-const waveform = [
-  12, 22, 30, 16, 28, 18, 10, 25, 32, 20, 14, 27, 18, 30, 12, 24, 16, 28, 20, 10, 24, 31, 18, 13,
-  27, 20, 12, 24, 16, 28,
-];
-const inputClass =
-  "h-14 w-full rounded-xl border-2 border-line-strong bg-[#fffdf8] px-4 text-lg text-ink outline-none placeholder:text-[#7b8a85] focus:border-brand focus:ring-4 focus:ring-brand-soft";
+function unpackFamily(info: string) {
+  const city = info.match(/^City: (.*)$/m)?.[1] ?? "";
+  const phone = info.match(/^Phone: (.*)$/m)?.[1] ?? "";
+  const detail = info.split("\n").filter((line) => !line.startsWith("City: ") && !line.startsWith("Phone: ")).join("\n").trim();
+  return { city, phone, detail };
+}
 
-const navItems = [
-  { label: "Home", icon: Home, path: "/caregiver" },
-  { label: "Memory", icon: Brain, path: "/caregiver/memory" },
-  { label: "Events", icon: CalendarDays, path: "/caregiver/events" },
-  { label: "Notes", icon: Mic, path: "/caregiver/notes" },
-  { label: "Profile", icon: User, path: "/caregiver/settings" },
-];
-
-function Sheet({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onMouseDown={onClose}
-      className="fixed inset-0 z-[70] bg-[#24332f]/45 backdrop-blur-sm"
-    >
-      <motion.div
-        role="dialog"
-        aria-modal="true"
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        exit={{ y: "100%" }}
-        transition={{ type: "spring", stiffness: 260, damping: 28 }}
-        onMouseDown={(event) => event.stopPropagation()}
-        className="fixed inset-x-0 bottom-0 mx-auto max-h-[90vh] max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl sm:p-8"
-      >
-        <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-line-strong" />
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex size-11 items-center justify-center rounded-xl bg-cream text-muted"
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-        {children}
-      </motion.div>
-    </motion.div>
-  );
+function unpackFact(name: string, info: string) {
+  const emoji = categories.find((category) => name.startsWith(`${category.emoji} `))?.emoji ?? "💡";
+  const text = name.startsWith(`${emoji} `) ? name.slice(emoji.length + 1) : info ? `${name}: ${info}` : name;
+  return { emoji, text };
 }
 
 export default function MemoryBank() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const reduceMotion = useReducedMotion();
-  const [activeTab, setActiveTab] = useState<Tab>("family");
+  const memory = useElderResource("memories");
+  const [tab, setTab] = useState<Tab>("family");
   const [filter, setFilter] = useState("All");
   const [familyModal, setFamilyModal] = useState(false);
   const [factModal, setFactModal] = useState(false);
-  const [familyDraft, setFamilyDraft] = useState({
-    name: "",
-    relationship: "Son",
-    phone: "",
-    city: "",
-    info: "",
-  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [familyDraft, setFamilyDraft] = useState({ name: "", relationship: "Son", city: "", phone: "", info: "" });
   const [factDraft, setFactDraft] = useState({ emoji: "💡", text: "" });
-  const [family, setFamily] = useState<FamilyMember[]>([
-    {
-      id: 1,
-      name: "Rahul Sharma",
-      relationship: "Son",
-      info: "Lives in Bengaluru. Software Engineer. Calls every evening at 9 PM.",
-      city: "Bengaluru",
-      phone: "98765 43211",
-      lastTalked: "Yesterday",
-      initials: "R",
-      color: "#c9573b",
-    },
-    {
-      id: 2,
-      name: "Priya Sharma",
-      relationship: "Daughter",
-      info: "Lives in Dubai. Doctor. Visits twice a year.",
-      city: "Dubai",
-      phone: "98765 43212",
-      lastTalked: "2 days ago",
-      initials: "P",
-      color: "#cc5e8f",
-    },
-    {
-      id: 3,
-      name: "Rohan Sharma",
-      relationship: "Grandson",
-      info: "8 years old. Class 3. Loves cricket and video games.",
-      city: "Bengaluru",
-      lastTalked: "Sunday",
-      initials: "Ro",
-      color: "#7562a8",
-      birthday: "20 Jan",
-    },
-  ]);
-  const [facts, setFacts] = useState<Fact[]>([
-    {
-      id: 1,
-      emoji: "🎵",
-      category: "Music",
-      text: "Loves bhajans, especially Hanuman Chalisa and Raghupati Raghav Raja Ram.",
-      source: "Learned from conversation on 12 Jan",
-      color: "text-[#7562a8] bg-[#eee9fa]",
-    },
-    {
-      id: 2,
-      emoji: "🍚",
-      category: "Food",
-      text: "Favorite food is Kheer—his late wife used to make it every Diwali. He gets emotional when talking about it.",
-      source: "Learned from conversation on 14 Jan",
-      color: "text-brand bg-brand-soft",
-    },
-    {
-      id: 3,
-      emoji: "📍",
-      category: "Places",
-      text: "Grew up in Varanasi near Dashashwamedh Ghat. Still talks about morning Ganga aarti.",
-      source: "Shared during a morning conversation",
-      color: "text-forest bg-sage",
-    },
-    {
-      id: 4,
-      emoji: "⚠️",
-      category: "Health",
-      text: "Allergic to penicillin. Must inform any new doctor.",
-      source: "Added by Rahul",
-      color: "text-red-700 bg-red-50",
-      important: true,
-    },
-    {
-      id: 5,
-      emoji: "☕",
-      category: "Habits",
-      text: "Drinks adrak chai every morning at 7 AM. Likes the tea strong.",
-      source: "Learned from daily routine",
-      color: "text-amber-700 bg-amber-50",
-    },
-    {
-      id: 6,
-      emoji: "📖",
-      category: "Life Story",
-      text: "Worked as a school teacher for 35 years and taught mathematics. Students still visit him.",
-      source: "Shared on 10 Jan",
-      color: "text-[#a94f79] bg-pink-50",
-    },
-  ]);
+  const [recalledMemories, setRecalledMemories] = useState<Record<string, unknown>[]>([]);
 
-  const saveFamily = (event: FormEvent) => {
-    event.preventDefault();
-    if (!familyDraft.name) return;
-    setFamily((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        ...familyDraft,
-        initials: familyDraft.name.slice(0, 2),
-        color: "#35675a",
-        lastTalked: "Not yet",
-      },
-    ]);
-    setFamilyDraft({ name: "", relationship: "Son", phone: "", city: "", info: "" });
-    setFamilyModal(false);
+  useEffect(() => {
+    if (!memory.elderId) return;
+    let active = true;
+    getCaregiverVoiceInteractions(memory.elderId).then(({ items }) => {
+      const weekStart = Date.now() - 7 * 86400000;
+      if (active) setRecalledMemories(items.filter((item) => item.intent === "memory" && new Date(String(item.created_at ?? 0)).getTime() >= weekStart).slice(0, 6));
+    }).catch(() => { if (active) setRecalledMemories([]); });
+    return () => { active = false; };
+  }, [memory.elderId]);
+
+  const families = useMemo(() => memory.items.filter((item) => item.type === "family").map((item) => {
+    const details = unpackFamily(typeof item.info === "string" ? item.info : "");
+    return { ...item, id: String(item.id), name: String(item.name ?? ""), relationship: String(item.relationship ?? "Family"), ...details };
+  }), [memory.items]);
+  const facts = useMemo(() => memory.items.filter((item) => item.type === "fact" || item.type === "preference").map((item) => {
+    const parsed = unpackFact(String(item.name ?? ""), String(item.info ?? ""));
+    return { ...item, id: String(item.id), ...parsed, category: categories.find((category) => category.emoji === parsed.emoji)?.label ?? "Personal" };
+  }), [memory.items]);
+  const stories = memory.items.filter((item) => item.type === "story");
+  const visibleFacts = facts.filter((fact) => filter === "All" || fact.category === filter);
+
+  const openFamily = (person?: (typeof families)[number]) => {
+    if (person) {
+      setEditingId(person.id);
+      setFamilyDraft({ name: person.name, relationship: person.relationship, city: person.city, phone: person.phone, info: person.detail });
+    } else { setEditingId(null); setFamilyDraft({ name: "", relationship: "Son", city: "", phone: "", info: "" }); }
+    setFamilyModal(true);
   };
-
-  const saveFact = (event: FormEvent) => {
+  const saveFamily = async (event: FormEvent) => {
     event.preventDefault();
-    if (!factDraft.text.trim()) return;
-    setFacts((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        emoji: factDraft.emoji,
-        category: "Personal",
-        text: factDraft.text.trim(),
-        source: "Added by family",
-        color: "text-forest bg-sage",
-      },
-    ]);
-    setFactDraft({ emoji: "💡", text: "" });
-    setFactModal(false);
+    const info = [`City: ${familyDraft.city.trim()}`, `Phone: ${familyDraft.phone.trim()}`, familyDraft.info.trim()].filter(Boolean).join("\n");
+    const data = { type: "family", name: familyDraft.name.trim(), relationship: familyDraft.relationship, info };
+    try {
+      if (editingId) await memory.update(editingId, data); else await memory.create(data);
+      setFamilyModal(false); setEditingId(null);
+    } catch (error) { memory.setError(error instanceof Error ? error.message : "Could not save this family member."); }
   };
-
-  const visibleFacts =
-    filter === "All"
-      ? facts
-      : facts.filter(
-          (fact) =>
-            fact.category === filter || (filter === "Stories" && fact.category === "Life Story"),
-        );
+  const saveFact = async (event: FormEvent) => {
+    event.preventDefault();
+    const isStory = factDraft.emoji === "📖";
+    const data = isStory ? { type: "story", name: factDraft.text.trim().split("\n")[0].slice(0, 100) || "Family story", info: factDraft.text.trim() } : { type: "fact", name: `${factDraft.emoji} ${factDraft.text.trim()}`, info: "" };
+    try {
+      if (editingId) await memory.update(editingId, data); else await memory.create(data);
+      setFactModal(false); setEditingId(null); setFactDraft({ emoji: "💡", text: "" });
+    } catch (error) { memory.setError(error instanceof Error ? error.message : "Could not save this memory."); }
+  };
+  const deleteRecord = async (id: string) => {
+    try { await memory.remove(id); } catch (error) { memory.setError(error instanceof Error ? error.message : "Could not delete this memory."); }
+  };
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="min-h-screen bg-cream pb-28 text-ink"
-    >
-      <header className="fixed inset-x-0 top-0 z-50 h-16 border-b border-line bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-full max-w-[1100px] items-center justify-between px-4 sm:px-6">
-          <Link to="/" className="flex items-center gap-2.5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-brand text-white">
-              <Heart className="size-5 fill-current" />
-            </span>
-            <span className="text-xl font-bold">SmritiVani</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => navigate("/caregiver/emergency")}
-              className="relative flex size-10 items-center justify-center rounded-xl hover:bg-cream"
-            >
-              <Bell className="size-6 text-muted" />
-              <span className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
-                2
-              </span>
-            </button>
-            <span className="flex size-10 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">
-              RS
-            </span>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-cream pb-28 text-ink">
+      <header className="fixed inset-x-0 top-0 z-50 h-16 border-b border-line bg-white/95 backdrop-blur-sm"><div className="mx-auto flex h-full max-w-[1100px] items-center justify-between px-4 sm:px-6"><Link to="/caregiver" className="flex items-center gap-2.5"><span className="flex size-9 items-center justify-center rounded-xl bg-brand text-white"><Heart className="size-5 fill-current" /></span><span className="text-xl font-bold">SmritiVani</span></Link><button type="button" onClick={() => navigate("/caregiver/settings")} aria-label="Open settings" className="flex size-10 items-center justify-center rounded-full bg-brand text-white"><User className="size-5" /></button></div></header>
+      <main className="mx-auto max-w-3xl px-4 pt-24 sm:px-6">
+        <div className="flex items-center gap-3"><span className="flex size-12 items-center justify-center rounded-2xl bg-[#eee9fa] text-[#7562a8]"><Brain /></span><div><p className="text-sm font-bold text-muted">Care profile memories</p><h1 className="text-2xl font-bold">Memory bank</h1></div></div>
+        {memory.error && <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{memory.error}</p>}
 
-      <main className="mx-auto max-w-2xl px-4 pt-20 sm:px-6">
-        <header className="pt-4">
-          <h1 className="text-4xl font-bold tracking-tight">Memory bank</h1>
-          <p className="mt-2 text-lg text-muted">
-            The people, details, and stories that matter to Ramesh.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <span className="rounded-full bg-brand-soft px-3 py-1.5 text-sm font-bold text-brand">
-              {family.length} family
-            </span>
-            <span className="rounded-full bg-sage px-3 py-1.5 text-sm font-bold text-forest">
-              {facts.length} facts
-            </span>
-            <span className="rounded-full bg-[#eee9fa] px-3 py-1.5 text-sm font-bold text-[#665199]">
-              2 stories
-            </span>
-          </div>
-        </header>
-
-        <div className="sticky top-16 z-40 -mx-1 mt-6 bg-cream/95 py-3 backdrop-blur-sm">
-          <div className="flex gap-1 rounded-2xl border border-line bg-[#eee9df] p-1.5">
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setActiveTab(id)}
-                className={`flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl text-sm font-bold transition-all ${activeTab === id ? "bg-white text-brand shadow-sm" : "text-muted hover:text-ink"}`}
-              >
-                <Icon className="size-5" /> {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <AnimatePresence mode="wait">
-          {activeTab === "family" && (
-            <motion.section
-              key="family"
-              initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="mt-4"
-            >
-              <div className="mb-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setFamilyModal(true)}
-                  className="flex h-12 items-center gap-2 rounded-xl bg-[#7562a8] px-5 text-sm font-bold text-white shadow-[0_3px_0_#584680]"
-                >
-                  <Plus className="size-4" /> Add member
-                </button>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {family.map((person, index) => (
-                  <motion.article
-                    key={person.id}
-                    initial={{ opacity: 0, y: reduceMotion ? 0 : 18 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: reduceMotion ? 0 : index * 0.07 }}
-                    className="relative overflow-hidden rounded-2xl border border-line bg-white p-6 shadow-[4px_4px_0_#e6dece]"
-                  >
-                    <span
-                      style={{ backgroundColor: person.color }}
-                      className="absolute inset-x-0 top-0 h-1.5"
-                    />
-                    {person.birthday && (
-                      <span className="absolute top-4 right-3 rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800">
-                        Birthday: {person.birthday}
-                      </span>
-                    )}
-                    <span
-                      style={{ backgroundColor: person.color }}
-                      className="mx-auto flex size-20 items-center justify-center rounded-2xl text-3xl font-bold text-white"
-                    >
-                      {person.initials}
-                    </span>
-                    <h2 className="mt-4 text-center text-xl font-bold">{person.name}</h2>
-                    <p
-                      style={{ color: person.color }}
-                      className="mt-1 text-center text-sm font-bold"
-                    >
-                      {person.relationship}
-                    </p>
-                    <p className="mt-3 min-h-15 text-center text-sm leading-5 text-muted">
-                      {person.info}
-                    </p>
-                    <div className="my-4 h-px bg-line" />
-                    <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs text-muted">
-                      <span>📍 {person.city}</span>
-                      {person.phone && <span>☎ {person.phone}</span>}
-                      <span>💬 {person.lastTalked}</span>
-                    </div>
-                    <div className="mt-5 flex gap-2">
-                      <button
-                        type="button"
-                        className="flex h-10 flex-1 items-center justify-center gap-1 rounded-lg bg-sage text-xs font-bold text-forest"
-                      >
-                        <Phone className="size-4" /> Call
-                      </button>
-                      <button
-                        type="button"
-                        className="flex h-10 flex-1 items-center justify-center gap-1 rounded-lg bg-cream text-xs font-bold text-muted"
-                      >
-                        <Pencil className="size-4" /> Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFamily((current) => current.filter((item) => item.id !== person.id))
-                        }
-                        className="flex size-10 items-center justify-center rounded-lg bg-red-50 text-red-600"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-                  </motion.article>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setFamilyModal(true)}
-                  className="flex min-h-72 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#b9aad9] bg-[#faf8ff] text-[#7562a8]"
-                >
-                  <span className="flex size-16 items-center justify-center rounded-full bg-[#eee9fa]">
-                    <Plus className="size-7" />
-                  </span>
-                  <span className="mt-3 font-bold">Add family member</span>
-                  <span className="mt-1 text-xs">Help SmritiVani recognize them</span>
-                </button>
-              </div>
-            </motion.section>
-          )}
-
-          {activeTab === "facts" && (
-            <motion.section
-              key="facts"
-              initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="mt-4"
-            >
-              <div className="mb-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setFactModal(true)}
-                  className="flex h-12 items-center gap-2 rounded-xl bg-forest px-5 text-sm font-bold text-white shadow-[0_3px_0_#244d43]"
-                >
-                  <Plus className="size-4" /> Add fact
-                </button>
-              </div>
-              <div className="mb-5 flex gap-2 overflow-x-auto pb-2">
-                {["All", "Music", "Food", "Places", "Health", "Habits", "Stories"].map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setFilter(item)}
-                    className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold ${filter === item ? "border-forest bg-forest text-white" : "border-line bg-white text-muted"}`}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-col gap-3">
-                {visibleFacts.map((fact, index) => (
-                  <motion.article
-                    key={fact.id}
-                    initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: reduceMotion ? 0 : index * 0.06 }}
-                    className={`flex items-start gap-4 rounded-2xl border border-line bg-white p-5 ${fact.important ? "border-l-4 border-l-red-500" : ""}`}
-                  >
-                    <span
-                      className={`flex size-12 shrink-0 items-center justify-center rounded-xl text-2xl ${fact.color}`}
-                    >
-                      {fact.emoji}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className={`text-xs font-bold tracking-wider uppercase ${fact.color.split(" ")[0]}`}
-                      >
-                        {fact.category}
-                      </p>
-                      <p className="mt-1 text-base leading-6">{fact.text}</p>
-                      <p className="mt-3 flex items-center gap-1 text-xs text-muted">
-                        <MessageSquare className="size-3" /> {fact.source}
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <button type="button" className="text-muted">
-                        <Pencil className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFacts((current) => current.filter((item) => item.id !== fact.id))
-                        }
-                        className="text-red-600"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-                  </motion.article>
-                ))}
-              </div>
-            </motion.section>
-          )}
-
-          {activeTab === "stories" && (
-            <motion.section
-              key="stories"
-              initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="mt-5"
-            >
-              <div className="mb-4 flex items-start gap-3 rounded-2xl border border-[#cfc1ec] bg-[#faf8ff] p-4">
-                <Sparkles className="mt-0.5 size-5 shrink-0 text-[#7562a8]" />
-                <div>
-                  <p className="font-bold text-[#665199]">Saved from meaningful conversations</p>
-                  <p className="mt-1 text-sm leading-5 text-muted">
-                    SmritiVani preserves stories your parent chooses to share during daily
-                    conversations.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-col gap-5">
-                {[
-                  {
-                    date: "14 January, 3:30 PM",
-                    mood: "🥹 Emotional",
-                    title: "Childhood in Varanasi",
-                    text: "Haan beta, jab hum chhote the na, maa subah 5 baje uthaati thi. Phir hum ghat pe jaate the. Ganga mein snaan karte the. Kitna achha time tha woh…",
-                    duration: "2:45",
-                  },
-                  {
-                    date: "13 January, 11:00 AM",
-                    mood: "😊 Happy",
-                    title: "Wedding day memories",
-                    text: "Shaadi ka din yaad hai? Baraat nikli thi shaam ko… tumhari maa ne laal saree pehni thi. Sab log kitne khush the…",
-                    duration: "1:30",
-                  },
-                ].map((story, index) => (
-                  <motion.article
-                    key={story.title}
-                    initial={{ opacity: 0, y: reduceMotion ? 0 : 18 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: reduceMotion ? 0 : index * 0.1 }}
-                    className="overflow-hidden rounded-2xl border border-line bg-white shadow-[4px_4px_0_#e6dece]"
-                  >
-                    <div className="bg-[#faf8ff] p-5">
-                      <div className="flex flex-wrap justify-between gap-2 text-sm text-muted">
-                        <span>{story.date}</span>
-                        <span className="font-bold text-[#665199]">{story.mood}</span>
-                      </div>
-                      <h2 className="mt-2 text-xl font-bold">{story.title}</h2>
-                    </div>
-                    <div className="p-5">
-                      <p className="text-base leading-7 italic text-muted">“{story.text}”</p>
-                      <button type="button" className="mt-2 text-sm font-bold text-[#7562a8]">
-                        Read full story
-                      </button>
-                      <div className="mt-5 flex items-center gap-3">
-                        <button
-                          type="button"
-                          className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#7562a8] text-white"
-                        >
-                          <Play className="size-4 fill-current" />
-                        </button>
-                        <div className="flex h-8 flex-1 items-center gap-[2px]" aria-hidden="true">
-                          {waveform.map((height, bar) => (
-                            <span
-                              key={bar}
-                              className="w-[3px] rounded-full bg-[#9e8dc9]"
-                              style={{ height: height * 0.75 }}
-                            />
-                          ))}
-                        </div>
-                        <span className="text-sm text-muted">{story.duration}</span>
-                      </div>
-                      <p className="mt-4 flex items-center gap-1 text-xs text-muted">
-                        <Save className="size-3" /> Saved automatically
-                      </p>
-                    </div>
-                  </motion.article>
-                ))}
-                <div className="rounded-2xl border-2 border-dashed border-line-strong bg-cream p-8 text-center text-muted">
-                  <BookOpen className="mx-auto size-12 opacity-50" />
-                  <p className="mx-auto mt-3 max-w-sm text-base">
-                    More stories will appear as Ramesh talks with SmritiVani.
-                  </p>
-                </div>
-              </div>
-            </motion.section>
-          )}
-        </AnimatePresence>
+        <section className="mt-5 rounded-2xl border border-line bg-white p-5"><div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-brand-soft text-brand"><Mic className="size-5" /></span><div><h2 className="font-bold">Memories recalled this week</h2><p className="text-sm text-muted">From saved voice interaction transcripts</p></div></div>{recalledMemories.length ? <div className="mt-4 space-y-2">{recalledMemories.map((item) => <article key={String(item.id)} className="rounded-xl bg-cream p-3"><p className="text-sm leading-6">{String(item.transcript ?? "")}</p><p className="mt-1 text-xs text-muted">{item.created_at ? new Date(String(item.created_at)).toLocaleString() : ""}</p></article>)}</div> : <p className="mt-4 text-sm text-muted">No memory-related voice interactions have been saved yet.</p>}</section>
+        <div className="mt-5 flex flex-wrap gap-2"><span className="rounded-full bg-brand-soft px-3 py-1.5 text-sm font-bold text-brand">{families.length} family</span><span className="rounded-full bg-sage px-3 py-1.5 text-sm font-bold text-forest">{facts.length} facts</span><span className="rounded-full bg-[#eee9fa] px-3 py-1.5 text-sm font-bold text-[#665199]">{stories.length} stories</span></div>
+        <div className="sticky top-16 z-40 mt-5 rounded-2xl border border-line bg-white p-1.5"><div className="flex gap-1">{([{ id: "family", label: "Family", Icon: Users }, { id: "facts", label: "Facts", Icon: Lightbulb }, { id: "stories", label: "Stories", Icon: BookOpen }] as const).map(({ id, label, Icon }) => <button key={id} type="button" onClick={() => setTab(id)} className={`flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl text-sm font-bold ${tab === id ? "bg-brand text-white" : "text-muted"}`}><Icon className="size-4" />{label}</button>)}</div></div>
+        {memory.isLoading ? <div className="mt-8 rounded-2xl bg-white p-8 text-center font-bold text-muted">Loading saved memories…</div> : !memory.elderId ? <div className="mt-6 rounded-2xl bg-white p-6"><p className="font-bold">Create a care profile first.</p><Link to="/onboarding" className="mt-3 inline-block font-bold text-brand underline">Start onboarding</Link></div> : <>
+          {tab === "family" && <section className="mt-5"><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-bold">Family members</h2><button type="button" onClick={() => openFamily()} className="flex min-h-11 items-center gap-2 rounded-xl bg-forest px-4 font-bold text-white"><Plus className="size-4" /> Add member</button></div>{families.length ? <div className="grid gap-4 sm:grid-cols-2">{families.map((person) => <article key={person.id} className="rounded-2xl border border-line bg-white p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="text-lg font-bold">{person.name}</h3><p className="text-sm font-bold text-[#7562a8]">{person.relationship}</p></div><span className="flex size-11 items-center justify-center rounded-full bg-sage font-bold text-forest">{person.name.slice(0, 2).toUpperCase()}</span></div>{person.city && <p className="mt-3 text-sm text-muted">📍 {person.city}</p>}{person.phone && <a href={`tel:${person.phone.replace(/[^+\d]/g, "")}`} className="mt-1 inline-flex items-center gap-2 text-sm font-bold text-forest"><Phone className="size-4" />{person.phone}</a>}{person.detail && <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted">{person.detail}</p>}<div className="mt-4 flex gap-2"><button type="button" onClick={() => openFamily(person)} className="flex min-h-10 items-center gap-2 rounded-lg bg-cream px-3 text-sm font-bold"><Pencil className="size-4" /> Edit</button><button type="button" onClick={() => void deleteRecord(person.id)} className="flex min-h-10 items-center gap-2 rounded-lg bg-red-50 px-3 text-sm font-bold text-red-700"><Trash2 className="size-4" /> Remove</button></div></article>)}</div> : <div className="rounded-2xl border-2 border-dashed border-line-strong bg-white p-10 text-center text-muted"><Users className="mx-auto size-10" /><p className="mt-3 font-bold">No family members added</p><p className="mt-1 text-sm">Add a contact to keep important relationships with this profile.</p></div>}</section>}
+          {tab === "facts" && <section className="mt-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-bold">Important facts</h2><button type="button" onClick={() => { setEditingId(null); setFactDraft({ emoji: "💡", text: "" }); setFactModal(true); }} className="flex min-h-11 items-center gap-2 rounded-xl bg-forest px-4 font-bold text-white"><Plus className="size-4" /> Add fact</button></div><div className="mb-4 flex gap-2 overflow-x-auto pb-2">{["All", ...categories.filter((category) => category.emoji !== "📖").map((category) => category.label)].map((item) => <button key={item} type="button" onClick={() => setFilter(item)} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold ${filter === item ? "border-forest bg-forest text-white" : "border-line bg-white text-muted"}`}>{item}</button>)}</div>{visibleFacts.length ? <div className="space-y-3">{visibleFacts.map((fact) => <article key={fact.id} className="flex items-start gap-4 rounded-2xl border border-line bg-white p-5"><span className={`flex size-11 shrink-0 items-center justify-center rounded-xl text-xl ${colors[fact.emoji]}`}>{fact.emoji}</span><div className="min-w-0 flex-1"><p className="text-xs font-bold uppercase text-muted">{fact.category}</p><p className="mt-1 leading-6">{fact.text}</p></div><button type="button" onClick={() => { setEditingId(fact.id); setFactDraft({ emoji: fact.emoji, text: fact.text }); setFactModal(true); }} aria-label="Edit fact" className="rounded-lg p-2 text-muted hover:bg-cream"><Pencil className="size-4" /></button><button type="button" onClick={() => void deleteRecord(fact.id)} aria-label="Delete fact" className="rounded-lg p-2 text-red-600 hover:bg-red-50"><Trash2 className="size-4" /></button></article>)}</div> : <div className="rounded-2xl border-2 border-dashed border-line-strong bg-white p-10 text-center text-muted"><Lightbulb className="mx-auto size-10" /><p className="mt-3 font-bold">No facts in this category</p></div>}</section>}
+          {tab === "stories" && <section className="mt-5">{stories.length ? <div className="space-y-4">{stories.map((story) => <article key={String(story.id)} className="rounded-2xl border border-line bg-white p-5"><p className="text-sm font-bold text-[#7562a8]">Saved family story</p><h2 className="mt-1 text-xl font-bold">{String(story.name ?? "Story")}</h2><p className="mt-3 whitespace-pre-wrap leading-7 text-muted">{String(story.info ?? "")}</p><div className="mt-4 flex gap-2"><button type="button" onClick={() => { setEditingId(String(story.id)); setFactDraft({ emoji: "📖", text: String(story.info ?? story.name ?? "") }); setFactModal(true); }} className="flex min-h-10 items-center gap-2 rounded-lg bg-cream px-3 text-sm font-bold"><Pencil className="size-4" /> Edit story</button><button type="button" onClick={() => void deleteRecord(String(story.id))} className="flex min-h-10 items-center gap-2 rounded-lg bg-red-50 px-3 text-sm font-bold text-red-700"><Trash2 className="size-4" /> Remove story</button></div></article>)}</div> : <div className="rounded-2xl border-2 border-dashed border-line-strong bg-white p-10 text-center text-muted"><BookOpen className="mx-auto size-10" /><p className="mt-3 font-bold">No stories saved</p><p className="mt-1 text-sm">Add a story from the facts tab using the book category.</p><button type="button" onClick={() => { setTab("facts"); setFactDraft({ emoji: "📖", text: "" }); setFactModal(true); }} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#7562a8] px-4 font-bold text-white"><Plus className="size-4" /> Add a story</button></div>}</section>}
+        </>}
       </main>
+      <CaregiverBottomNav activeOverride="Memory" />
 
-      <AnimatePresence>
-        {familyModal && (
-          <Sheet title="Add family member" onClose={() => setFamilyModal(false)}>
-            <form onSubmit={saveFamily} className="mt-6 flex flex-col gap-5">
-              <label>
-                <span className="mb-2 block font-bold">Full name</span>
-                <div className="relative">
-                  <User className="absolute top-1/2 left-4 size-5 -translate-y-1/2 text-muted" />
-                  <input
-                    value={familyDraft.name}
-                    onChange={(e) => setFamilyDraft({ ...familyDraft, name: e.target.value })}
-                    className={`${inputClass} pl-12`}
-                    placeholder="Full name"
-                  />
-                </div>
-              </label>
-              <div>
-                <p className="mb-2 font-bold">Relationship</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {relationships.map((relationship) => (
-                    <button
-                      key={relationship}
-                      type="button"
-                      onClick={() => setFamilyDraft({ ...familyDraft, relationship })}
-                      className={`min-h-11 rounded-xl px-1 text-xs font-bold ${familyDraft.relationship === relationship ? "bg-[#7562a8] text-white" : "bg-cream text-muted"}`}
-                    >
-                      {relationship}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="grid gap-5 sm:grid-cols-2">
-                <label>
-                  <span className="mb-2 block font-bold">Phone</span>
-                  <div className="relative">
-                    <Phone className="absolute top-1/2 left-4 size-5 -translate-y-1/2 text-muted" />
-                    <input
-                      type="tel"
-                      value={familyDraft.phone}
-                      onChange={(e) => setFamilyDraft({ ...familyDraft, phone: e.target.value })}
-                      className={`${inputClass} pl-12`}
-                      placeholder="98765 43210"
-                    />
-                  </div>
-                </label>
-                <label>
-                  <span className="mb-2 block font-bold">City</span>
-                  <div className="relative">
-                    <MapPin className="absolute top-1/2 left-4 size-5 -translate-y-1/2 text-muted" />
-                    <input
-                      value={familyDraft.city}
-                      onChange={(e) => setFamilyDraft({ ...familyDraft, city: e.target.value })}
-                      className={`${inputClass} pl-12`}
-                      placeholder="Bengaluru"
-                    />
-                  </div>
-                </label>
-              </div>
-              <button
-                type="button"
-                className="flex h-28 flex-col items-center justify-center rounded-xl border-2 border-dashed border-line-strong bg-cream text-muted"
-              >
-                <Camera className="size-7" />
-                <span className="mt-2 text-sm font-bold">Tap to upload photo</span>
-              </button>
-              <label>
-                <span className="mb-2 block font-bold">About this person</span>
-                <textarea
-                  value={familyDraft.info}
-                  onChange={(e) => setFamilyDraft({ ...familyDraft, info: e.target.value })}
-                  className="h-24 w-full rounded-xl border-2 border-line-strong p-4 outline-none focus:border-[#7562a8]"
-                  placeholder="Lives in Bengaluru, calls every evening"
-                />
-              </label>
-              <button
-                type="submit"
-                className="h-14 rounded-xl bg-[#7562a8] text-lg font-bold text-white"
-              >
-                Save member
-              </button>
-            </form>
-          </Sheet>
-        )}
-        {factModal && (
-          <Sheet title="Add a fact" onClose={() => setFactModal(false)}>
-            <form onSubmit={saveFact} className="mt-6">
-              <p className="mb-3 font-bold">Choose a category</p>
-              <div className="flex flex-wrap gap-2">
-                {categoryEmojis.map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => setFactDraft({ ...factDraft, emoji })}
-                    className={`flex size-12 items-center justify-center rounded-xl text-2xl ${factDraft.emoji === emoji ? "bg-forest ring-4 ring-sage" : "bg-cream"}`}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-              <label className="mt-5 block">
-                <span className="mb-2 block font-bold">Fact</span>
-                <textarea
-                  value={factDraft.text}
-                  onChange={(e) => setFactDraft({ ...factDraft, text: e.target.value })}
-                  className="h-28 w-full rounded-xl border-2 border-line-strong p-4 text-lg outline-none focus:border-forest focus:ring-4 focus:ring-sage"
-                  placeholder="e.g., Loves Kheer, allergic to penicillin"
-                />
-              </label>
-              <button
-                type="submit"
-                className="mt-6 h-14 w-full rounded-xl bg-forest text-lg font-bold text-white"
-              >
-                Save fact
-              </button>
-            </form>
-          </Sheet>
-        )}
-      </AnimatePresence>
-
-      <nav className="fixed inset-x-0 bottom-0 z-50 mx-auto h-[76px] max-w-2xl rounded-t-2xl border-x border-t border-line bg-white/95 px-2 shadow-[0_-8px_24px_rgba(64,55,40,0.08)] backdrop-blur-sm">
-        <div className="flex h-full items-center justify-around">
-          {navItems.map(({ label, icon: Icon, path }) => {
-            const active = location.pathname === path;
-            return (
-              <motion.button
-                key={label}
-                type="button"
-                whileTap={{ scale: 0.9 }}
-                onClick={() => navigate(path)}
-                className={`relative flex min-w-14 flex-col items-center gap-1 px-2 py-2 ${active ? "text-brand" : "text-muted"}`}
-              >
-                {active && <span className="absolute -top-1 h-1 w-7 rounded-full bg-brand" />}
-                <Icon className={`size-6 ${active ? "scale-110" : ""}`} />
-                <span className="text-xs font-bold">{label}</span>
-              </motion.button>
-            );
-          })}
-        </div>
-      </nav>
-    </motion.div>
+      {familyModal && <div className="fixed inset-0 z-[80] flex items-end justify-center bg-[#24332f]/45 p-0 sm:items-center sm:p-4" onMouseDown={() => setFamilyModal(false)}><section role="dialog" aria-modal="true" aria-label="Family member details" onMouseDown={(event) => event.stopPropagation()} className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-t-3xl bg-white p-6 sm:rounded-3xl"><div className="flex items-center justify-between"><h2 className="text-2xl font-bold">{editingId ? "Edit family member" : "Add family member"}</h2><button type="button" onClick={() => setFamilyModal(false)} aria-label="Close" className="flex size-10 items-center justify-center rounded-xl bg-cream"><X /></button></div><form onSubmit={(event) => void saveFamily(event)} className="mt-5 space-y-4"><label className="block"><span className="mb-1 block font-bold">Name</span><input required value={familyDraft.name} onChange={(event) => setFamilyDraft({ ...familyDraft, name: event.target.value })} className={inputClass} /></label><label className="block"><span className="mb-1 block font-bold">Relationship</span><select value={familyDraft.relationship} onChange={(event) => setFamilyDraft({ ...familyDraft, relationship: event.target.value })} className={inputClass}>{relationships.map((relationship) => <option key={relationship}>{relationship}</option>)}</select></label><label className="block"><span className="mb-1 block font-bold">Phone</span><input type="tel" value={familyDraft.phone} onChange={(event) => setFamilyDraft({ ...familyDraft, phone: event.target.value })} className={inputClass} /></label><label className="block"><span className="mb-1 block font-bold">City</span><input value={familyDraft.city} onChange={(event) => setFamilyDraft({ ...familyDraft, city: event.target.value })} className={inputClass} /></label><label className="block"><span className="mb-1 block font-bold">About this person</span><textarea value={familyDraft.info} onChange={(event) => setFamilyDraft({ ...familyDraft, info: event.target.value })} className="min-h-24 w-full rounded-xl border-2 border-line-strong bg-cream p-4 outline-none focus:border-forest" /></label><button type="submit" className="h-12 w-full rounded-xl bg-forest font-bold text-white">{editingId ? "Save changes" : "Save family member"}</button></form></section></div>}
+      {factModal && <div className="fixed inset-0 z-[80] flex items-end justify-center bg-[#24332f]/45 p-0 sm:items-center sm:p-4" onMouseDown={() => setFactModal(false)}><section role="dialog" aria-modal="true" aria-label="Memory details" onMouseDown={(event) => event.stopPropagation()} className="w-full max-w-xl rounded-t-3xl bg-white p-6 sm:rounded-3xl"><div className="flex items-center justify-between"><h2 className="text-2xl font-bold">{editingId ? "Edit memory" : "Add a memory"}</h2><button type="button" onClick={() => setFactModal(false)} aria-label="Close" className="flex size-10 items-center justify-center rounded-xl bg-cream"><X /></button></div><form onSubmit={(event) => void saveFact(event)} className="mt-5 space-y-4"><label className="block"><span className="mb-2 block font-bold">Category</span><select value={factDraft.emoji} onChange={(event) => setFactDraft({ ...factDraft, emoji: event.target.value })} className={inputClass}>{categories.map(({ emoji, label }) => <option key={emoji} value={emoji}>{emoji} {label}</option>)}</select></label><label className="block"><span className="mb-1 block font-bold">{factDraft.emoji === "📖" ? "Story title and details" : "Fact"}</span><textarea required value={factDraft.text} onChange={(event) => setFactDraft({ ...factDraft, text: event.target.value })} className="min-h-32 w-full rounded-xl border-2 border-line-strong bg-cream p-4 outline-none focus:border-forest" placeholder="Write the detail to remember…" /></label><button type="submit" className="h-12 w-full rounded-xl bg-forest font-bold text-white">{editingId ? "Save changes" : "Save memory"}</button></form></section></div>}
+    </div>
   );
 }
